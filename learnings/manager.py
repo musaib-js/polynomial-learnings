@@ -13,9 +13,9 @@ paths only:
 
 from __future__ import annotations
 
-from .backend import VectorStoreBackend
+from .backend import SearchFilter, VectorStoreBackend
 from .embedder import Embedder
-from .models import Learning, Outcome, Scope
+from .models import Learning, Message, Outcome, Scope, query_from_messages
 from .retriever import HybridRetriever
 
 
@@ -74,6 +74,45 @@ class LearningManager:
             entity_id=entity_id,
             limit=limit,
         )
+
+    def retrieve_for_conversation(
+        self,
+        messages: list[Message],
+        entity_id: str | None = None,
+        limit: int = 5,
+    ) -> list[Learning]:
+        """Retrieve relevant learnings from a conversation snapshot.
+
+        Flattens the messages into a single query, then runs hybrid retrieval.
+        This is the read path behind the ``/retrieve`` API endpoint.
+        """
+        return self.retrieve(
+            query=query_from_messages(messages),
+            entity_id=entity_id,
+            limit=limit,
+        )
+
+    def list_learnings(
+        self,
+        scope: Scope,
+        entity_id: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Learning]:
+        """List this agent's active learnings for a single scope.
+
+        Powers the "get personal / global learnings" endpoints. Personal
+        listing requires an ``entity_id``.
+        """
+        if scope is Scope.personal and entity_id is None:
+            raise ValueError("personal listing requires an entity_id")
+        flt = SearchFilter(
+            agent_id=self._agent_id,
+            scope=scope.value,
+            entity_id=entity_id,
+            status="active",
+        )
+        return self._backend.list(flt, limit, offset)
 
     def format_for_prompt(self, learnings: list[Learning]) -> str:
         """Render learnings as a concise, applicable block for a system prompt."""

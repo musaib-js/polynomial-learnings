@@ -44,6 +44,12 @@ class VectorStoreBackend(Protocol):
         """Best learnings by full-text keyword match, best first."""
         ...
 
+    def list(
+        self, flt: SearchFilter, limit: int, offset: int
+    ) -> list[Learning]:
+        """List learnings matching ``flt``, most recently used first (no ranking)."""
+        ...
+
     def update(self, learning_id: str, **fields) -> None:
         """Patch stored fields on an existing learning (e.g. hits, status)."""
         ...

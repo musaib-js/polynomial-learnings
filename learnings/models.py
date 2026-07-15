@@ -68,3 +68,19 @@ class Learning(BaseModel):
     def embedding_text(self) -> str:
         """The text that gets embedded and full-text indexed."""
         return f"{self.context} {self.content}"
+
+
+class Message(BaseModel):
+    """One turn of a conversation snapshot handed to the retrieval API."""
+
+    role: str
+    content: str
+
+
+def query_from_messages(messages: list[Message]) -> str:
+    """Flatten a conversation snapshot into a single search query.
+
+    The base version uses every provided message (no cap yet — message
+    limiting is deferred). Empty contents are dropped.
+    """
+    return " ".join(m.content for m in messages if m.content)

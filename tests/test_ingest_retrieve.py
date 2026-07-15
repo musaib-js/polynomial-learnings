@@ -47,7 +47,8 @@ def manager():
     backend = PgVectorBackend(DSN)
     mgr = LearningManager(agent_id=agent_id, backend=backend, embedder=EMBEDDER)
     yield mgr
-    backend._conn.execute("DELETE FROM learnings WHERE agent_id = %s", [agent_id])
+    with backend._pool.connection() as conn:
+        conn.execute("DELETE FROM learnings WHERE agent_id = %s", [agent_id])
     backend.close()
 
 
