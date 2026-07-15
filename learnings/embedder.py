@@ -48,7 +48,7 @@ class HuggingFaceEmbedder:
         get_dim = getattr(
             self._model,
             "get_embedding_dimension",
-            self._model.get_sentence_embedding_dimension,
+            self._model.get_embedding_dimension,
         )
         self._dimension = get_dim()
 

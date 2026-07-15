@@ -13,6 +13,7 @@ from typing import Sequence
 
 import psycopg
 from pgvector.psycopg import register_vector
+from psycopg_pool import ConnectionPool
 
 from .backend import SearchFilter
 from .models import Learning, Outcome, Scope, Status
@@ -61,36 +62,66 @@ def _row_to_learning(row: tuple) -> Learning:
 
 
 def _where(flt: SearchFilter) -> tuple[str, list]:
-    """Build the isolation pre-filter WHERE clause and its parameters."""
+    """Build the isolation pre-filter WHERE clause and its parameters.
+
+    Two modes:
+
+    * ``scope`` unset (retrieval): visible scope — always global, plus personal
+      only for this entity. This is the hybrid-search pre-filter.
+    * ``scope`` set (listing): match that scope exactly. ``personal`` additionally
+      requires the given ``entity_id``; ``global`` ignores entity.
+    """
     clauses = ["agent_id = %s"]
     params: list = [flt["agent_id"]]
 
     clauses.append("status = %s")
     params.append(flt.get("status", "active"))
 
-    # Visible scope: always global; personal only for this entity.
-    entity_id = flt.get("entity_id")
-    if entity_id is not None:
-        clauses.append("(scope = 'global' OR entity_id = %s)")
-        params.append(entity_id)
+    scope = flt.get("scope")
+    if scope is not None:
+        clauses.append("scope = %s")
+        params.append(scope)
+        if scope == "personal":
+            clauses.append("entity_id = %s")
+            params.append(flt.get("entity_id"))
     else:
-        clauses.append("scope = 'global'")
+        # Visible scope: always global; personal only for this entity.
+        entity_id = flt.get("entity_id")
+        if entity_id is not None:
+            clauses.append("(scope = 'global' OR entity_id = %s)")
+            params.append(entity_id)
+        else:
+            clauses.append("scope = 'global'")
 
     return " AND ".join(clauses), params
 
 
 class PgVectorBackend:
-    def __init__(self, dsn: str | None = None):
+    def __init__(
+        self,
+        dsn: str | None = None,
+        min_size: int = 1,
+        max_size: int = 10,
+    ):
         self._dsn = dsn or os.environ["DATABASE_URL"]
-        self._conn = psycopg.connect(self._dsn, autocommit=True)
-        register_vector(self._conn)
+        # A pool so the backend is safe under concurrent API requests. Each
+        # pooled connection is autocommit and has the pgvector adapter registered.
+        self._pool = ConnectionPool(
+            self._dsn,
+            min_size=min_size,
+            max_size=max_size,
+            kwargs={"autocommit": True},
+            configure=register_vector,
+            open=True,
+        )
 
     def close(self) -> None:
-        self._conn.close()
+        self._pool.close()
 
     # -- writes -----------------------------------------------------------
     def upsert(self, learning: Learning, embedding: Sequence[float]) -> None:
-        self._conn.execute(
+        with self._pool.connection() as conn:
+            conn.execute(
             """
             INSERT INTO learnings (
                 id, agent_id, entity_id, scope, status, supersedes,
@@ -145,9 +176,10 @@ class PgVectorBackend:
             return
         assignments = ", ".join(f"{col} = %s" for col in fields)
         params = list(fields.values()) + [learning_id]
-        self._conn.execute(
-            f"UPDATE learnings SET {assignments} WHERE id = %s", params
-        )
+        with self._pool.connection() as conn:
+            conn.execute(
+                f"UPDATE learnings SET {assignments} WHERE id = %s", params
+            )
 
     # -- reads ------------------------------------------------------------
     def vector_search(
@@ -155,30 +187,54 @@ class PgVectorBackend:
     ) -> list[tuple[Learning, float]]:
         where, params = _where(flt)
         # 1 - cosine_distance  ->  cosine similarity in [0, 1].
-        cur = self._conn.execute(
-            f"""
-            SELECT {_COLUMNS}, 1 - (embedding <=> %s::vector) AS score
-            FROM learnings
-            WHERE {where}
-            ORDER BY embedding <=> %s::vector
-            LIMIT %s
-            """,
-            [list(query_embedding), *params, list(query_embedding), top_k],
-        )
-        return [(_row_to_learning(r), float(r[-1])) for r in cur.fetchall()]
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                f"""
+                SELECT {_COLUMNS}, 1 - (embedding <=> %s::vector) AS score
+                FROM learnings
+                WHERE {where}
+                ORDER BY embedding <=> %s::vector
+                LIMIT %s
+                """,
+                [list(query_embedding), *params, list(query_embedding), top_k],
+            )
+            return [(_row_to_learning(r), float(r[-1])) for r in cur.fetchall()]
 
     def keyword_search(
         self, query_text: str, flt: SearchFilter, top_k: int
     ) -> list[tuple[Learning, float]]:
         where, params = _where(flt)
-        cur = self._conn.execute(
-            f"""
-            SELECT {_COLUMNS}, ts_rank(search_tsv, plainto_tsquery('english', %s)) AS score
-            FROM learnings
-            WHERE {where} AND search_tsv @@ plainto_tsquery('english', %s)
-            ORDER BY score DESC
-            LIMIT %s
-            """,
-            [query_text, *params, query_text, top_k],
-        )
-        return [(_row_to_learning(r), float(r[-1])) for r in cur.fetchall()]
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                f"""
+                SELECT {_COLUMNS}, ts_rank(search_tsv, plainto_tsquery('english', %s)) AS score
+                FROM learnings
+                WHERE {where} AND search_tsv @@ plainto_tsquery('english', %s)
+                ORDER BY score DESC
+                LIMIT %s
+                """,
+                [query_text, *params, query_text, top_k],
+            )
+            return [(_row_to_learning(r), float(r[-1])) for r in cur.fetchall()]
+
+    def list(
+        self, flt: SearchFilter, limit: int = 50, offset: int = 0
+    ) -> list[Learning]:
+        """List learnings matching ``flt``, most recently used first.
+
+        Unlike the search methods this does no ranking — it is the read path
+        behind the "get personal / global learnings" API endpoints.
+        """
+        where, params = _where(flt)
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                f"""
+                SELECT {_COLUMNS}
+                FROM learnings
+                WHERE {where}
+                ORDER BY last_used_at DESC NULLS LAST, created_at DESC
+                LIMIT %s OFFSET %s
+                """,
+                [*params, limit, offset],
+            )
+            return [_row_to_learning(r) for r in cur.fetchall()]
