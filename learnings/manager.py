@@ -1,11 +1,14 @@
 """Single entry point for the library.
 
-For this deliverable the manager covers the vector *ingestion* and *retrieval*
-paths only:
+The manager covers the vector *ingestion*, *retrieval*, and *curated persist*
+paths:
 
-* ``record``  — embed a candidate and upsert it (the future curation gate,
-  §6, slots in right here without changing callers).
-* ``retrieve`` — hybrid relevance search via ``HybridRetriever``.
+* ``record``  — embed a candidate and upsert it. Raw write path, no curation.
+* ``retrieve`` / ``retrieve_for_conversation`` — hybrid relevance search via
+  ``HybridRetriever``.
+* ``persist_from_conversation`` — the curated write path (SDD §6): asks a
+  ``Judge`` whether a conversation contains a durable lesson, and if so
+  persists it (new / refine / supersede) via ``LearningCurator``.
 * ``format_for_prompt`` — render retrieved learnings as compact prompt context.
 
 ``promote_to_global`` is intentionally left out of scope for now.
@@ -14,8 +17,10 @@ paths only:
 from __future__ import annotations
 
 from .backend import SearchFilter, VectorStoreBackend
+from .curator import LearningCurator
 from .embedder import Embedder
-from .models import Learning, Message, Outcome, Scope, query_from_messages
+from .judge import Judge
+from .models import Learning, Message, Outcome, PersistResult, Scope, query_from_messages
 from .retriever import HybridRetriever
 
 
@@ -26,11 +31,21 @@ class LearningManager:
         backend: VectorStoreBackend,
         embedder: Embedder,
         retriever: HybridRetriever | None = None,
+        judge: Judge | None = None,
+        curator: LearningCurator | None = None,
     ):
         self._agent_id = agent_id
         self._backend = backend
         self._embedder = embedder
         self._retriever = retriever or HybridRetriever(backend, embedder)
+        self._judge = judge
+        # A curator needs a judge to do anything useful; only build one
+        # (or accept a caller-supplied one) when a judge is actually
+        # available, so retrieval-only managers (e.g. the existing /retrieve
+        # API route) keep working with zero curation overhead.
+        self._curator = curator or (
+            LearningCurator(backend, embedder, judge, self._retriever) if judge else None
+        )
 
     def record(
         self,
@@ -91,6 +106,26 @@ class LearningManager:
             entity_id=entity_id,
             limit=limit,
         )
+
+    def persist_from_conversation(
+        self,
+        messages: list[Message],
+        entity_id: str | None = None,
+    ) -> PersistResult:
+        """Curated write path: decide whether ``messages`` contains a durable
+        lesson and, if so, persist it (SDD §6 — novelty then worth-keeping).
+
+        Requires a ``judge`` (or ``curator``) to have been supplied at
+        construction time; raises otherwise, since there is nothing to
+        curate with.
+        """
+        if self._curator is None:
+            raise ValueError(
+                "persist_from_conversation requires a judge (or curator) to "
+                "be supplied to LearningManager — this manager was built "
+                "retrieval-only"
+            )
+        return self._curator.persist(self._agent_id, messages, entity_id=entity_id)
 
     def list_learnings(
         self,

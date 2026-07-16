@@ -4,8 +4,9 @@ Run with::
 
     uvicorn learnings.api.app:app
 
-``DATABASE_URL`` must be set. The embedder and pgvector backend are created once
-at startup and shared across requests via ``app.state``.
+``DATABASE_URL`` must be set. The embedder, pgvector backend, and (if
+``GROQ_API_KEY`` is set) judge are created once at startup and shared across
+requests via ``app.state``.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from ..embedder import HuggingFaceEmbedder
+from ..judge import GroqJudge
 from ..pgvector_backend import PgVectorBackend, init_schema
 from .routes import router
 
@@ -28,6 +30,10 @@ async def lifespan(app: FastAPI):
     backend = PgVectorBackend(dsn)
     app.state.embedder = embedder
     app.state.backend = backend
+    # Nullable by design: GROQ_API_KEY is optional at deploy time. Retrieval
+    # routes never touch app.state.judge; only /persist needs it, and
+    # returns 503 (not a crash) when it's None. See deps.get_manager.
+    app.state.judge = GroqJudge() if os.environ.get("GROQ_API_KEY") else None
     try:
         yield
     finally:
