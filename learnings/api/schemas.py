@@ -22,3 +22,19 @@ class RetrieveRequest(BaseModel):
         description="Whom the retrieval is for; unlocks that entity's personal learnings.",
     )
     limit: int = Field(default=5, ge=1, le=50)
+
+
+class PersistRequest(BaseModel):
+    """Body of ``POST /v1/agents/{agent_id}/persist``."""
+
+    messages: list[Message] = Field(
+        ...,
+        description=(
+            "Conversation snapshot to curate. Only role='user' messages are "
+            "considered by the judge."
+        ),
+    )
+    entity_id: str | None = Field(
+        default=None,
+        description="Whom a personal-scope learning would belong to, if the judge decides one.",
+    )

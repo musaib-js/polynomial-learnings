@@ -6,12 +6,12 @@ embedder and psycopg calls are blocking, and this keeps them off the event loop.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..manager import LearningManager
-from ..models import Learning, Scope
+from ..models import Learning, PersistResult, Scope
 from .deps import get_manager
-from .schemas import RetrieveRequest
+from .schemas import PersistRequest, RetrieveRequest
 
 router = APIRouter(prefix="/v1")
 
@@ -29,6 +29,25 @@ def retrieve(
     return manager.retrieve_for_conversation(
         messages=req.messages, entity_id=req.entity_id, limit=req.limit
     )
+
+
+@router.post(
+    "/agents/{agent_id}/persist",
+    response_model=PersistResult,
+    summary="Curate a conversation snapshot and persist a durable learning, if warranted",
+)
+def persist(
+    agent_id: str,
+    req: PersistRequest,
+    manager: LearningManager = Depends(get_manager),
+) -> PersistResult:
+    try:
+        return manager.persist_from_conversation(messages=req.messages, entity_id=req.entity_id)
+    except ValueError as exc:
+        # Raised by LearningManager when no judge is configured for this
+        # agent (e.g. GROQ_API_KEY unset) — a server configuration issue,
+        # not a bad request.
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.get(
