@@ -238,3 +238,63 @@ class PgVectorBackend:
                 [*params, limit, offset],
             )
             return [_row_to_learning(r) for r in cur.fetchall()]
+
+    def get(self, learning_id: str) -> Learning | None:
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                f"SELECT {_COLUMNS} FROM learnings WHERE id = %s", [learning_id]
+            )
+            row = cur.fetchone()
+        return _row_to_learning(row) if row is not None else None
+
+    def stats(self, agent_id: str, top_n: int = 5) -> dict:
+        with self._pool.connection() as conn:
+            agg = conn.execute(
+                """
+                SELECT
+                    count(*)                                            AS total,
+                    count(*) FILTER (WHERE status = 'active')           AS active,
+                    count(*) FILTER (WHERE status = 'superseded')       AS superseded,
+                    count(*) FILTER (WHERE status = 'rejected')         AS rejected,
+                    count(*) FILTER (WHERE scope = 'personal')          AS personal,
+                    count(*) FILTER (WHERE scope = 'global')            AS global,
+                    coalesce(sum(hits), 0)                              AS total_hits,
+                    coalesce(avg(hits), 0)                              AS avg_hits,
+                    count(DISTINCT entity_id)                           AS distinct_entities,
+                    max(last_used_at)                                   AS last_used_at,
+                    max(created_at)                                     AS last_created_at
+                FROM learnings
+                WHERE agent_id = %s
+                """,
+                [agent_id],
+            ).fetchone()
+
+            top = conn.execute(
+                """
+                SELECT id, context, content, hits
+                FROM learnings
+                WHERE agent_id = %s AND hits > 0
+                ORDER BY hits DESC, last_used_at DESC
+                LIMIT %s
+                """,
+                [agent_id, top_n],
+            ).fetchall()
+
+        return {
+            "total": agg[0],
+            "by_status": {
+                "active": agg[1],
+                "superseded": agg[2],
+                "rejected": agg[3],
+            },
+            "by_scope": {"personal": agg[4], "global": agg[5]},
+            "total_hits": int(agg[6]),
+            "avg_hits": float(agg[7]),
+            "distinct_entities": agg[8],
+            "last_used_at": agg[9],
+            "last_created_at": agg[10],
+            "most_used": [
+                {"id": str(r[0]), "context": r[1], "content": r[2], "hits": r[3]}
+                for r in top
+            ],
+        }

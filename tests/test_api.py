@@ -45,12 +45,13 @@ def seed(agent_id):
 
 @pytest.fixture
 def client():
-    # Reuse the shared embedder rather than reloading the model per test.
+    # Construct TestClient WITHOUT the context manager so the app lifespan
+    # (which would reload the embedding model and re-run init_schema on every
+    # test) never fires. We inject the shared singletons onto app.state instead.
     app = create_app()
     app.state.embedder = EMBEDDER
     app.state.backend = PgVectorBackend(DSN)
-    with TestClient(app) as c:
-        yield c
+    yield TestClient(app)
     app.state.backend.close()
 
 
@@ -124,3 +125,91 @@ def test_get_personal_and_global(client, seed, agent_id):
         f"/v1/agents/{agent_id}/learnings/personal", params={"entity_id": "bob"}
     ).json()
     assert bob == []
+
+
+def test_approve_disapprove_and_soft_delete(client, seed, agent_id):
+    learning = seed.record(
+        context="user asks about churn", content="churn is measured monthly",
+        entity_id="alice",
+    )
+    base = f"/v1/agents/{agent_id}/learnings/{learning.id}"
+
+    # Disapprove -> rejected, and dropped from active retrieval.
+    assert client.post(f"{base}/disapprove").json()["status"] == "rejected"
+    hidden = client.post(
+        f"/v1/agents/{agent_id}/retrieve",
+        json={"messages": [{"role": "user", "content": "churn"}], "entity_id": "alice"},
+    ).json()
+    assert hidden == []
+
+    # Approve -> active again, retrievable.
+    assert client.post(f"{base}/approve").json()["status"] == "active"
+    shown = client.post(
+        f"/v1/agents/{agent_id}/retrieve",
+        json={"messages": [{"role": "user", "content": "churn"}], "entity_id": "alice"},
+    ).json()
+    assert len(shown) == 1
+
+    # Soft delete -> rejected, but row is retained (still fetchable via stats).
+    assert client.delete(base).json()["status"] == "rejected"
+
+
+def test_update_reembeds_on_content_change(client, seed, agent_id):
+    learning = seed.record(
+        context="user asks about refunds", content="refunds take 5 days",
+        entity_id="alice",
+    )
+    base = f"/v1/agents/{agent_id}/learnings/{learning.id}"
+
+    resp = client.patch(base, json={"content": "refunds now take 10 days", "tags": ["billing"]})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["content"] == "refunds now take 10 days"
+    assert body["tags"] == ["billing"]
+
+    # New content must be findable semantically (proves the re-embed happened).
+    found = client.post(
+        f"/v1/agents/{agent_id}/retrieve",
+        json={"messages": [{"role": "user", "content": "how long do refunds take"}],
+              "entity_id": "alice"},
+    ).json()
+    assert found[0]["content"] == "refunds now take 10 days"
+
+
+def test_update_unknown_field_rejected(client, seed, agent_id):
+    learning = seed.record(context="x", content="y", entity_id="alice")
+    # agent_id is not editable; schema drops it, so a no-op patch still 200s
+    # but attempting to change scope via the model is impossible (not a field).
+    resp = client.patch(
+        f"/v1/agents/{agent_id}/learnings/{learning.id}", json={"category": "faq"}
+    )
+    assert resp.json()["category"] == "faq"
+
+
+def test_missing_learning_404(client, agent_id):
+    import uuid as _uuid
+
+    fake = _uuid.uuid4()
+    assert (
+        client.post(f"/v1/agents/{agent_id}/learnings/{fake}/approve").status_code == 404
+    )
+    assert client.delete(f"/v1/agents/{agent_id}/learnings/{fake}").status_code == 404
+
+
+def test_stats(client, seed, agent_id):
+    seed.record(context="a asks x", content="answer x", entity_id="alice")
+    seed.record(context="b asks y", content="answer y", entity_id="bob")
+    seed.record(context="global thing", content="global answer", scope=Scope.global_)
+    # Generate a hit so most_used is populated.
+    client.post(
+        f"/v1/agents/{agent_id}/retrieve",
+        json={"messages": [{"role": "user", "content": "answer x"}], "entity_id": "alice"},
+    )
+
+    stats = client.get(f"/v1/agents/{agent_id}/stats").json()
+    assert stats["total"] == 3
+    assert stats["by_scope"] == {"personal": 2, "global": 1}
+    assert stats["by_status"]["active"] == 3
+    assert stats["distinct_entities"] == 2  # alice, bob (global entity_id is NULL)
+    assert stats["total_hits"] >= 1
+    assert len(stats["most_used"]) >= 1

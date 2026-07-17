@@ -50,6 +50,18 @@ class VectorStoreBackend(Protocol):
         """List learnings matching ``flt``, most recently used first (no ranking)."""
         ...
 
+    def get(self, learning_id: str) -> Learning | None:
+        """Fetch a single learning by id, or ``None`` if it does not exist."""
+        ...
+
     def update(self, learning_id: str, **fields) -> None:
         """Patch stored fields on an existing learning (e.g. hits, status)."""
+        ...
+
+    def stats(self, agent_id: str, top_n: int = 5) -> dict:
+        """Aggregate statistics for one agent's learnings.
+
+        Returns raw counts/sums plus the ``top_n`` most-used learnings; the
+        manager assembles these into an ``AgentStats`` model.
+        """
         ...
