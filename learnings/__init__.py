@@ -14,9 +14,12 @@ from .exceptions import (
 from .judge import FakeJudge, GroqJudge, Judge
 from .manager import LearningManager
 from .models import (
+    AgentStats,
     GeneratedLearning,
     JudgeVerdict,
     Learning,
+    Message,
+    MostUsedLearning,
     Outcome,
     PersistResult,
     Scope,
@@ -33,6 +36,9 @@ logging.getLogger("learnings").addHandler(logging.NullHandler())
 
 __all__ = [
     "Learning",
+    "Message",
+    "AgentStats",
+    "MostUsedLearning",
     "Scope",
     "Outcome",
     "Status",

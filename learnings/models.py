@@ -87,6 +87,30 @@ def query_from_messages(messages: list[Message]) -> str:
     return " ".join(m.content for m in messages if m.content)
 
 
+class MostUsedLearning(BaseModel):
+    """A compact reference to a frequently retrieved learning (for stats)."""
+
+    id: str
+    context: str
+    content: str
+    hits: int
+
+
+class AgentStats(BaseModel):
+    """Aggregate statistics for a single agent's stored learnings."""
+
+    agent_id: str
+    total: int
+    by_status: dict[str, int]  # active / superseded / rejected
+    by_scope: dict[str, int]  # personal / global
+    total_hits: int
+    avg_hits: float
+    distinct_entities: int
+    last_used_at: datetime | None = None
+    last_created_at: datetime | None = None
+    most_used: list[MostUsedLearning] = Field(default_factory=list)
+
+
 # -- Persist Learning API (curation) -------------------------------------
 #
 # These models describe the Judge's decision and its effect, per SDD §6/§8.

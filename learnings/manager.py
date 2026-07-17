@@ -20,8 +20,22 @@ from .backend import SearchFilter, VectorStoreBackend
 from .curator import LearningCurator
 from .embedder import Embedder
 from .judge import Judge
-from .models import Learning, Message, Outcome, PersistResult, Scope, query_from_messages
+from .models import (
+    AgentStats,
+    Learning,
+    Message,
+    MostUsedLearning,
+    Outcome,
+    PersistResult,
+    Scope,
+    Status,
+    query_from_messages,
+)
 from .retriever import HybridRetriever
+
+# Fields a caller may patch via ``update_learning``. Isolation/lifecycle columns
+# (agent_id, entity_id, scope, id, created_at, hits) are deliberately excluded.
+_EDITABLE_FIELDS = ("context", "content", "category", "tags", "reason", "outcome")
 
 
 class LearningManager:
@@ -148,6 +162,97 @@ class LearningManager:
             status="active",
         )
         return self._backend.list(flt, limit, offset)
+
+    # -- single-learning operations --------------------------------------
+    def get_learning(self, learning_id: str) -> Learning | None:
+        """Fetch one of *this agent's* learnings, or ``None`` if not found.
+
+        Enforces isolation: a learning belonging to another agent reads as
+        missing, so callers can safely 404 on ``None``.
+        """
+        learning = self._backend.get(learning_id)
+        if learning is None or learning.agent_id != self._agent_id:
+            return None
+        return learning
+
+    def _set_status(self, learning_id: str, status: Status) -> Learning | None:
+        learning = self.get_learning(learning_id)
+        if learning is None:
+            return None
+        self._backend.update(learning_id, status=status.value)
+        learning.status = status
+        return learning
+
+    def approve_learning(self, learning_id: str) -> Learning | None:
+        """Approve a learning: mark it ``active`` so retrieval can surface it."""
+        return self._set_status(learning_id, Status.active)
+
+    def disapprove_learning(self, learning_id: str) -> Learning | None:
+        """Disapprove a learning: mark it ``rejected`` (kept for audit)."""
+        return self._set_status(learning_id, Status.rejected)
+
+    def delete_learning(self, learning_id: str) -> Learning | None:
+        """Soft-delete: mark ``rejected`` and retain the row for audit.
+
+        Per the retention policy, rows are never hard-deleted here; superseded/
+        rejected records age out to long-term storage separately.
+        """
+        return self._set_status(learning_id, Status.rejected)
+
+    def update_learning(self, learning_id: str, **fields) -> Learning | None:
+        """Patch editable fields on one of this agent's learnings.
+
+        Only ``_EDITABLE_FIELDS`` may be changed. If ``context`` or ``content``
+        changes, the learning is re-embedded so its vector stays consistent with
+        its text (the ``search_tsv`` full-text column updates automatically).
+        """
+        learning = self.get_learning(learning_id)
+        if learning is None:
+            return None
+
+        unknown = set(fields) - set(_EDITABLE_FIELDS)
+        if unknown:
+            raise ValueError(f"cannot update fields: {sorted(unknown)}")
+
+        text_changed = False
+        for key, value in fields.items():
+            if value is None:
+                continue
+            if key == "outcome" and not isinstance(value, Outcome):
+                value = Outcome(value)
+            setattr(learning, key, value)
+            if key in ("context", "content"):
+                text_changed = True
+
+        if text_changed:
+            # Re-embed and upsert so the stored vector matches the new text.
+            embedding = self._embedder.embed([learning.embedding_text()])[0]
+            self._backend.upsert(learning, embedding)
+        else:
+            self._backend.update(
+                learning_id,
+                category=learning.category,
+                tags=learning.tags,
+                reason=learning.reason,
+                outcome=learning.outcome.value,
+            )
+        return learning
+
+    def stats(self, top_n: int = 5) -> AgentStats:
+        """Aggregate statistics for this agent's learnings."""
+        raw = self._backend.stats(self._agent_id, top_n=top_n)
+        return AgentStats(
+            agent_id=self._agent_id,
+            total=raw["total"],
+            by_status=raw["by_status"],
+            by_scope=raw["by_scope"],
+            total_hits=raw["total_hits"],
+            avg_hits=raw["avg_hits"],
+            distinct_entities=raw["distinct_entities"],
+            last_used_at=raw["last_used_at"],
+            last_created_at=raw["last_created_at"],
+            most_used=[MostUsedLearning(**m) for m in raw["most_used"]],
+        )
 
     def format_for_prompt(self, learnings: list[Learning]) -> str:
         """Render learnings as a concise, applicable block for a system prompt."""
