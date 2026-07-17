@@ -34,7 +34,9 @@ def test_manager_without_judge_raises_on_persist(backend):
     manager = LearningManager(agent_id=agent_id, backend=backend, embedder=EMBEDDER)
 
     with pytest.raises(ValueError, match="requires a judge"):
-        manager.persist_from_conversation([Message(role="user", content="hi")], entity_id="alice")
+        manager.persist_from_conversation(
+            [Message(role="user", content="hi")], entity_id="alice"
+        )
 
 
 def test_manager_with_judge_persists_end_to_end(backend):
@@ -49,7 +51,9 @@ def test_manager_with_judge_persists_end_to_end(backend):
             ),
         )
     )
-    manager = LearningManager(agent_id=agent_id, backend=backend, embedder=EMBEDDER, judge=judge)
+    manager = LearningManager(
+        agent_id=agent_id, backend=backend, embedder=EMBEDDER, judge=judge
+    )
 
     result = manager.persist_from_conversation(
         [Message(role="user", content="what are the rate limits sdk-smoke-test-xyz?")],

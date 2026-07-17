@@ -58,7 +58,9 @@ class LearningManager:
         # available, so retrieval-only managers (e.g. the existing /retrieve
         # API route) keep working with zero curation overhead.
         self._curator = curator or (
-            LearningCurator(backend, embedder, judge, self._retriever) if judge else None
+            LearningCurator(backend, embedder, judge, self._retriever)
+            if judge
+            else None
         )
 
     def record(

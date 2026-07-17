@@ -49,7 +49,9 @@ def persist(
     manager: LearningManager = Depends(get_manager),
 ) -> PersistResult:
     try:
-        return manager.persist_from_conversation(messages=req.messages, entity_id=req.entity_id)
+        return manager.persist_from_conversation(
+            messages=req.messages, entity_id=req.entity_id
+        )
     except ValueError as exc:
         # Raised by LearningManager when no judge is configured for this
         # agent (e.g. GROQ_API_KEY unset) — a server configuration issue,

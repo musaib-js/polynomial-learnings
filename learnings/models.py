@@ -200,6 +200,9 @@ class PersistResult(BaseModel):
         else:
             if self.learning_id is None:
                 raise ValueError("a persisted result requires learning_id")
-            if self.superseded_id is not None and self.verdict is not Verdict.contradict:
+            if (
+                self.superseded_id is not None
+                and self.verdict is not Verdict.contradict
+            ):
                 raise ValueError("superseded_id is only set for verdict=contradict")
         return self

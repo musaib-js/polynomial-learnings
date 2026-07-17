@@ -24,6 +24,7 @@ from .routes import router
 
 load_dotenv()
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     dsn = os.environ["DATABASE_URL"]

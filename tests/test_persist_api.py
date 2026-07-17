@@ -66,7 +66,10 @@ def test_retrieve_route_still_works_without_a_judge(client, agent_id):
     client.app.state.judge = None
     resp = client.post(
         f"/v1/agents/{agent_id}/retrieve",
-        json={"messages": [{"role": "user", "content": "anything"}], "entity_id": "alice"},
+        json={
+            "messages": [{"role": "user", "content": "anything"}],
+            "entity_id": "alice",
+        },
     )
     assert resp.status_code == 200
     assert resp.json() == []
@@ -76,10 +79,15 @@ def test_retrieve_route_still_works_without_a_judge(client, agent_id):
 
 
 def test_persist_rejected(client, agent_id):
-    client.app.state.judge = FakeJudge(JudgeVerdict(verdict=Verdict.reject, reason="trivial"))
+    client.app.state.judge = FakeJudge(
+        JudgeVerdict(verdict=Verdict.reject, reason="trivial")
+    )
     resp = client.post(
         f"/v1/agents/{agent_id}/persist",
-        json={"messages": [{"role": "user", "content": "thanks, bye!"}], "entity_id": "alice"},
+        json={
+            "messages": [{"role": "user", "content": "thanks, bye!"}],
+            "entity_id": "alice",
+        },
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -102,7 +110,9 @@ def test_persist_new_learning_and_round_trip_via_retrieve(client, agent_id):
     resp = client.post(
         f"/v1/agents/{agent_id}/persist",
         json={
-            "messages": [{"role": "user", "content": "how should I paginate http-api-smoke-xyz?"}],
+            "messages": [
+                {"role": "user", "content": "how should I paginate http-api-smoke-xyz?"}
+            ],
             "entity_id": "alice",
         },
     )
@@ -116,7 +126,9 @@ def test_persist_new_learning_and_round_trip_via_retrieve(client, agent_id):
     retrieve_resp = client.post(
         f"/v1/agents/{agent_id}/retrieve",
         json={
-            "messages": [{"role": "user", "content": "pagination approach http-api-smoke-xyz?"}],
+            "messages": [
+                {"role": "user", "content": "pagination approach http-api-smoke-xyz?"}
+            ],
             "entity_id": "alice",
         },
     )
@@ -132,14 +144,14 @@ def test_persist_personal_scope_without_entity_id_is_rejected_not_500(client, ag
     client.app.state.judge = FakeJudge(
         JudgeVerdict(
             verdict=Verdict.new,
-            learning=GeneratedLearning(
-                context="c", content="v", scope=Scope.personal
-            ),
+            learning=GeneratedLearning(context="c", content="v", scope=Scope.personal),
         )
     )
     resp = client.post(
         f"/v1/agents/{agent_id}/persist",
-        json={"messages": [{"role": "user", "content": "some message"}]},  # no entity_id
+        json={
+            "messages": [{"role": "user", "content": "some message"}]
+        },  # no entity_id
     )
     assert resp.status_code == 200
     assert resp.json()["decision"] == "rejected"

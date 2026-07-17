@@ -96,6 +96,4 @@ class HybridRetriever:
         for learning in learnings:
             learning.hits += 1
             learning.last_used_at = now
-            self._backend.update(
-                learning.id, hits=learning.hits, last_used_at=now
-            )
+            self._backend.update(learning.id, hits=learning.hits, last_used_at=now)

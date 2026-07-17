@@ -37,7 +37,10 @@ def test_prompt_with_no_neighbours_says_none_found():
 
 
 def test_prompt_includes_every_neighbour_id_and_content():
-    neighbours = [_learning(id="learning-a"), _learning(id="learning-b", content="other lesson")]
+    neighbours = [
+        _learning(id="learning-a"),
+        _learning(id="learning-b", content="other lesson"),
+    ]
     prompt = build_judge_prompt(_messages(), neighbours)
     assert "learning-a" in prompt
     assert "learning-b" in prompt
