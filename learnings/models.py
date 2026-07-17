@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Scope(str, Enum):
@@ -108,3 +109,97 @@ class AgentStats(BaseModel):
     last_used_at: datetime | None = None
     last_created_at: datetime | None = None
     most_used: list[MostUsedLearning] = Field(default_factory=list)
+
+
+# -- Persist Learning API (curation) -------------------------------------
+#
+# These models describe the Judge's decision and its effect, per SDD §6/§8.
+# The Judge itself decides `scope` (see GeneratedLearning) as well as the
+# novelty verdict; `entity_id` is never in its hands — it is resolved by the
+# curator from the caller's request, which is the structural half of the
+# isolation guarantee (a `global` verdict always forces entity_id to None;
+# a `personal` verdict always uses the caller-supplied entity_id).
+
+
+class Verdict(str, Enum):
+    """The Judge's classification of a candidate learning.
+
+    ``reject``     — not worth persisting (trivial, unsafe, one-off).
+    ``new``        — worth persisting, no close match among retrieved neighbours.
+    ``same``       — restates an existing active learning; discarded, existing touched.
+    ``refine``     — same lesson family as an existing learning; merge into it.
+    ``contradict`` — conflicts with an existing learning; supersede it.
+    """
+
+    reject = "reject"
+    new = "new"
+    same = "same"
+    refine = "refine"
+    contradict = "contradict"
+
+
+class GeneratedLearning(BaseModel):
+    """The learning content authored by the Judge when it decides to persist.
+
+    Mirrors the persistable fields of :class:`Learning`, minus everything the
+    curator (not the LLM) is responsible for: ``id``, ``agent_id``,
+    ``entity_id``, ``status``, ``supersedes``, and the ranking/timestamp
+    signals. ``scope`` is included because the Judge decides it.
+    """
+
+    context: str
+    content: str
+    outcome: Outcome = Outcome.neutral
+    scope: Scope = Scope.personal
+    reason: str | None = None
+    original_output: str | None = None
+    corrected_output: str | None = None
+    category: str | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
+class JudgeVerdict(BaseModel):
+    """The Judge's full structured output for one persist attempt."""
+
+    verdict: Verdict
+    reason: str | None = None
+    related_learning_id: str | None = None
+    learning: GeneratedLearning | None = None
+
+    @model_validator(mode="after")
+    def _check_verdict_invariants(self) -> "JudgeVerdict":
+        if self.verdict is Verdict.reject and self.learning is not None:
+            raise ValueError("a rejected verdict must not carry a generated learning")
+        if self.verdict in (Verdict.same, Verdict.refine, Verdict.contradict):
+            if not self.related_learning_id:
+                raise ValueError(
+                    f"verdict={self.verdict.value!r} requires related_learning_id"
+                )
+        if self.verdict in (Verdict.new, Verdict.refine, Verdict.contradict):
+            if self.learning is None:
+                raise ValueError(
+                    f"verdict={self.verdict.value!r} requires a generated learning"
+                )
+        return self
+
+
+class PersistResult(BaseModel):
+    """What the Persist Learning API returns for one conversation."""
+
+    decision: Literal["persisted", "rejected"]
+    verdict: Verdict
+    learning_id: str | None = None
+    superseded_id: str | None = None
+    reason: str | None = None
+
+    @model_validator(mode="after")
+    def _check_decision_invariants(self) -> "PersistResult":
+        if self.decision == "rejected":
+            if self.learning_id is not None or self.superseded_id is not None:
+                raise ValueError("a rejected result must not carry learning ids")
+        else:
+            if self.learning_id is None:
+                raise ValueError("a persisted result requires learning_id")
+            if self.superseded_id is not None and self.verdict is not Verdict.contradict:
+                raise ValueError("superseded_id is only set for verdict=contradict")
+        return self
