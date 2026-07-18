@@ -27,3 +27,16 @@ class JudgeOutputError(JudgeError):
 class CurationError(LearningsError):
     """Raised for curator-level failures that aren't the Judge's fault —
     e.g. a verdict referencing a learning outside the isolation boundary."""
+
+
+class LearningsAPIError(LearningsError):
+    """Raised by ``LearningClient`` when an HTTP call to the API fails —
+    either transport-level (unreachable, timeout) or a non-2xx response.
+
+    ``status_code`` is ``None`` for transport failures (nothing came back),
+    and the server's ``detail`` string otherwise.
+    """
+
+    def __init__(self, message: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
