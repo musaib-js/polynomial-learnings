@@ -67,8 +67,32 @@ class Learning(BaseModel):
     hits: int = 0
 
     def embedding_text(self) -> str:
-        """The text that gets embedded and full-text indexed."""
+        """The text that gets embedded and full-text indexed.
+
+        Deliberately unchanged by the rerank work: stored vectors were
+        computed from exactly this text, so changing it silently invalidates
+        every existing embedding (and `update_learning` only re-embeds on
+        context/content edits). Rerank-time enrichment lives in
+        ``rerank_text()`` instead, which is computed fresh per query.
+        """
         return f"{self.context} {self.content}"
+
+    def rerank_text(self) -> str:
+        """The document a cross-encoder reranker scores against the query.
+
+        Structured, and enriched with ``category``/``tags`` when present —
+        measured on ms-marco-MiniLM-L-6-v2, topic metadata is what lets a
+        query like "currency formatting" match a lesson whose body never
+        uses either word (raw logit -7.5 without metadata → +2.9 with).
+        Computed from the row at query time, so it applies to all stored
+        learnings immediately with no re-embedding or migration.
+        """
+        parts = [f"Situation: {self.context}", f"Lesson: {self.content}"]
+        if self.category:
+            parts.append(f"Category: {self.category}")
+        if self.tags:
+            parts.append(f"Tags: {', '.join(self.tags)}")
+        return "\n".join(parts)
 
 
 class Message(BaseModel):

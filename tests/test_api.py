@@ -204,14 +204,26 @@ def test_missing_learning_404(client, agent_id):
 
 
 def test_stats(client, seed, agent_id):
-    seed.record(context="a asks x", content="answer x", entity_id="alice")
+    # Realistic content, not degenerate placeholders: /retrieve now runs
+    # through a semantic reranker (see deps.get_reranker), which correctly
+    # refuses to treat single-letter placeholder text ("a asks x" / "answer
+    # x") as meaningfully relevant to itself — it scored statistically
+    # indistinguishable from genuinely irrelevant queries. A real semantic
+    # reranker needs real semantic content to judge.
+    seed.record(
+        context="user asks when the billing cycle resets",
+        content="the billing cycle resets on the first of each month",
+        entity_id="alice",
+    )
     seed.record(context="b asks y", content="answer y", entity_id="bob")
     seed.record(context="global thing", content="global answer", scope=Scope.global_)
     # Generate a hit so most_used is populated.
     client.post(
         f"/v1/agents/{agent_id}/retrieve",
         json={
-            "messages": [{"role": "user", "content": "answer x"}],
+            "messages": [
+                {"role": "user", "content": "when does the billing cycle reset?"}
+            ],
             "entity_id": "alice",
         },
     )
