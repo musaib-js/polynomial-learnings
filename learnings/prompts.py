@@ -39,6 +39,13 @@ mistake, or unsafe to retain (verdict "reject", give a brief reason).
 When you generate a learning, you also decide its scope: "personal" if it \
 only applies to this specific user/entity, or "global" if it is true for \
 every user of this agent.
+
+Always fill in "category" (one short topic word, e.g. "formatting") and \
+"tags" (2-5 short topic keywords, e.g. ["currency", "usd"]) on every \
+generated learning — retrieval matches queries against them, so a learning \
+without them is much harder to find later. Write the "context" as a short \
+third-person description of the situation (e.g. "user asks how to format \
+currency"), not a quote of the conversation.
 """
 
 

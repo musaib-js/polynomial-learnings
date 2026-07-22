@@ -122,7 +122,7 @@ class PgVectorBackend:
     def upsert(self, learning: Learning, embedding: Sequence[float]) -> None:
         with self._pool.connection() as conn:
             conn.execute(
-            """
+                """
             INSERT INTO learnings (
                 id, agent_id, entity_id, scope, status, supersedes,
                 context, content, outcome, reason, original_output,
@@ -149,27 +149,27 @@ class PgVectorBackend:
                 hits = EXCLUDED.hits,
                 embedding = EXCLUDED.embedding
             """,
-            (
-                learning.id,
-                learning.agent_id,
-                learning.entity_id,
-                learning.scope.value,
-                learning.status.value,
-                learning.supersedes,
-                learning.context,
-                learning.content,
-                learning.outcome.value,
-                learning.reason,
-                learning.original_output,
-                learning.corrected_output,
-                learning.category,
-                learning.tags,
-                learning.created_at,
-                learning.last_used_at,
-                learning.hits,
-                list(embedding),
-            ),
-        )
+                (
+                    learning.id,
+                    learning.agent_id,
+                    learning.entity_id,
+                    learning.scope.value,
+                    learning.status.value,
+                    learning.supersedes,
+                    learning.context,
+                    learning.content,
+                    learning.outcome.value,
+                    learning.reason,
+                    learning.original_output,
+                    learning.corrected_output,
+                    learning.category,
+                    learning.tags,
+                    learning.created_at,
+                    learning.last_used_at,
+                    learning.hits,
+                    list(embedding),
+                ),
+            )
 
     def update(self, learning_id: str, **fields) -> None:
         if not fields:
@@ -177,9 +177,7 @@ class PgVectorBackend:
         assignments = ", ".join(f"{col} = %s" for col in fields)
         params = list(fields.values()) + [learning_id]
         with self._pool.connection() as conn:
-            conn.execute(
-                f"UPDATE learnings SET {assignments} WHERE id = %s", params
-            )
+            conn.execute(f"UPDATE learnings SET {assignments} WHERE id = %s", params)
 
     # -- reads ------------------------------------------------------------
     def vector_search(

@@ -96,7 +96,9 @@ def test_groq_judge_strict_mode_flag_by_model():
     assert strict._strict is True
     assert strict._response_format["type"] == "json_schema"
 
-    non_strict = GroqJudge(model="llama-3.3-70b-versatile", api_key="fake-key-for-init-only")
+    non_strict = GroqJudge(
+        model="llama-3.3-70b-versatile", api_key="fake-key-for-init-only"
+    )
     assert non_strict._strict is False
     assert non_strict._response_format == {"type": "json_object"}
 

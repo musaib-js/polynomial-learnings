@@ -12,6 +12,7 @@ requests via ``app.state``.
 from __future__ import annotations
 
 import os
+from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -20,6 +21,8 @@ from ..embedder import HuggingFaceEmbedder
 from ..judge import GroqJudge
 from ..pgvector_backend import PgVectorBackend, init_schema
 from .routes import router
+
+load_dotenv()
 
 
 @asynccontextmanager

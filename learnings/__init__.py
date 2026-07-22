@@ -27,6 +27,7 @@ from .models import (
     Verdict,
 )
 from .pgvector_backend import PgVectorBackend, init_schema
+from .reranker import CrossEncoderReranker, FakeReranker, Reranker
 from .retriever import HybridRetriever, reciprocal_rank_fusion
 
 # Library convention: never configure handlers here — that's the
@@ -55,6 +56,9 @@ __all__ = [
     "SearchFilter",
     "PgVectorBackend",
     "init_schema",
+    "Reranker",
+    "FakeReranker",
+    "CrossEncoderReranker",
     "HybridRetriever",
     "reciprocal_rank_fusion",
     "LearningManager",

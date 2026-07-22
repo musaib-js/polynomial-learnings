@@ -129,7 +129,8 @@ def test_get_personal_and_global(client, seed, agent_id):
 
 def test_approve_disapprove_and_soft_delete(client, seed, agent_id):
     learning = seed.record(
-        context="user asks about churn", content="churn is measured monthly",
+        context="user asks about churn",
+        content="churn is measured monthly",
         entity_id="alice",
     )
     base = f"/v1/agents/{agent_id}/learnings/{learning.id}"
@@ -156,12 +157,15 @@ def test_approve_disapprove_and_soft_delete(client, seed, agent_id):
 
 def test_update_reembeds_on_content_change(client, seed, agent_id):
     learning = seed.record(
-        context="user asks about refunds", content="refunds take 5 days",
+        context="user asks about refunds",
+        content="refunds take 5 days",
         entity_id="alice",
     )
     base = f"/v1/agents/{agent_id}/learnings/{learning.id}"
 
-    resp = client.patch(base, json={"content": "refunds now take 10 days", "tags": ["billing"]})
+    resp = client.patch(
+        base, json={"content": "refunds now take 10 days", "tags": ["billing"]}
+    )
     assert resp.status_code == 200
     body = resp.json()
     assert body["content"] == "refunds now take 10 days"
@@ -170,8 +174,10 @@ def test_update_reembeds_on_content_change(client, seed, agent_id):
     # New content must be findable semantically (proves the re-embed happened).
     found = client.post(
         f"/v1/agents/{agent_id}/retrieve",
-        json={"messages": [{"role": "user", "content": "how long do refunds take"}],
-              "entity_id": "alice"},
+        json={
+            "messages": [{"role": "user", "content": "how long do refunds take"}],
+            "entity_id": "alice",
+        },
     ).json()
     assert found[0]["content"] == "refunds now take 10 days"
 
@@ -191,19 +197,35 @@ def test_missing_learning_404(client, agent_id):
 
     fake = _uuid.uuid4()
     assert (
-        client.post(f"/v1/agents/{agent_id}/learnings/{fake}/approve").status_code == 404
+        client.post(f"/v1/agents/{agent_id}/learnings/{fake}/approve").status_code
+        == 404
     )
     assert client.delete(f"/v1/agents/{agent_id}/learnings/{fake}").status_code == 404
 
 
 def test_stats(client, seed, agent_id):
-    seed.record(context="a asks x", content="answer x", entity_id="alice")
+    # Realistic content, not degenerate placeholders: /retrieve now runs
+    # through a semantic reranker (see deps.get_reranker), which correctly
+    # refuses to treat single-letter placeholder text ("a asks x" / "answer
+    # x") as meaningfully relevant to itself — it scored statistically
+    # indistinguishable from genuinely irrelevant queries. A real semantic
+    # reranker needs real semantic content to judge.
+    seed.record(
+        context="user asks when the billing cycle resets",
+        content="the billing cycle resets on the first of each month",
+        entity_id="alice",
+    )
     seed.record(context="b asks y", content="answer y", entity_id="bob")
     seed.record(context="global thing", content="global answer", scope=Scope.global_)
     # Generate a hit so most_used is populated.
     client.post(
         f"/v1/agents/{agent_id}/retrieve",
-        json={"messages": [{"role": "user", "content": "answer x"}], "entity_id": "alice"},
+        json={
+            "messages": [
+                {"role": "user", "content": "when does the billing cycle reset?"}
+            ],
+            "entity_id": "alice",
+        },
     )
 
     stats = client.get(f"/v1/agents/{agent_id}/stats").json()
