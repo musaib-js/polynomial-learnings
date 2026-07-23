@@ -44,9 +44,7 @@ class VectorStoreBackend(Protocol):
         """Best learnings by full-text keyword match, best first."""
         ...
 
-    def list(
-        self, flt: SearchFilter, limit: int, offset: int
-    ) -> list[Learning]:
+    def list(self, flt: SearchFilter, limit: int, offset: int) -> list[Learning]:
         """List learnings matching ``flt``, most recently used first (no ranking)."""
         ...
 

@@ -15,6 +15,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -23,6 +24,8 @@ from ..embedder import HuggingFaceEmbedder
 from ..judge import GroqJudge
 from ..pgvector_backend import PgVectorBackend, init_schema
 from .routes import router
+
+load_dotenv()
 
 # Repo root / "dashboard/dist" — the built operator console, served at /app when
 # present. Build it with `npm run build` in dashboard/; during development the

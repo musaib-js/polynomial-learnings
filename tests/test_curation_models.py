@@ -33,7 +33,9 @@ def test_reject_verdict_rejects_a_generated_learning():
 @pytest.mark.parametrize("verdict", [Verdict.same, Verdict.refine, Verdict.contradict])
 def test_related_verdicts_require_related_learning_id(verdict):
     with pytest.raises(ValidationError, match="requires related_learning_id"):
-        JudgeVerdict(verdict=verdict, learning=_learning() if verdict != Verdict.same else None)
+        JudgeVerdict(
+            verdict=verdict, learning=_learning() if verdict != Verdict.same else None
+        )
 
 
 @pytest.mark.parametrize("verdict", [Verdict.new, Verdict.refine, Verdict.contradict])

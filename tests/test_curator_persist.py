@@ -48,7 +48,9 @@ def env():
     agent_id = f"test-curator-{uuid.uuid4()}"
     backend = PgVectorBackend(DSN)
     retriever = HybridRetriever(backend, EMBEDDER)
-    manager = LearningManager(agent_id=agent_id, backend=backend, embedder=EMBEDDER, retriever=retriever)
+    manager = LearningManager(
+        agent_id=agent_id, backend=backend, embedder=EMBEDDER, retriever=retriever
+    )
 
     class Env:
         pass
@@ -81,10 +83,14 @@ def _row_status(env, learning_id: str) -> str:
 
 
 def test_reject_persists_nothing(env):
-    judge = FakeJudge(JudgeVerdict(verdict=Verdict.reject, reason="trivial restatement"))
+    judge = FakeJudge(
+        JudgeVerdict(verdict=Verdict.reject, reason="trivial restatement")
+    )
     curator = env.make_curator(judge)
 
-    result = curator.persist(env.agent_id, _messages("thanks, that helps"), entity_id="alice")
+    result = curator.persist(
+        env.agent_id, _messages("thanks, that helps"), entity_id="alice"
+    )
 
     assert result.decision == "rejected"
     assert result.verdict is Verdict.reject
@@ -96,7 +102,9 @@ def test_no_user_messages_rejects(env):
     curator = env.make_curator(judge)
 
     result = curator.persist(
-        env.agent_id, [Message(role="assistant", content="how can I help?")], entity_id="alice"
+        env.agent_id,
+        [Message(role="assistant", content="how can I help?")],
+        entity_id="alice",
     )
 
     assert result.decision == "rejected"
@@ -115,7 +123,9 @@ def test_new_inserts_active_learning(env):
     judge = FakeJudge(JudgeVerdict(verdict=Verdict.new, learning=generated))
     curator = env.make_curator(judge)
 
-    result = curator.persist(env.agent_id, _messages("revenue by region please"), entity_id="alice")
+    result = curator.persist(
+        env.agent_id, _messages("revenue by region please"), entity_id="alice"
+    )
 
     assert result.decision == "persisted"
     assert result.verdict is Verdict.new
@@ -137,7 +147,9 @@ def test_global_scope_forces_entity_id_none_even_if_request_has_one(env):
     curator = env.make_curator(judge)
 
     # Request supplies entity_id=alice, but the judge decided global scope.
-    result = curator.persist(env.agent_id, _messages("when is fiscal year?"), entity_id="alice")
+    result = curator.persist(
+        env.agent_id, _messages("when is fiscal year?"), entity_id="alice"
+    )
     assert result.decision == "persisted"
 
     for entity in ("alice", "bob", None):
@@ -155,7 +167,9 @@ def test_personal_scope_without_entity_id_is_rejected(env):
     judge = FakeJudge(JudgeVerdict(verdict=Verdict.new, learning=generated))
     curator = env.make_curator(judge)
 
-    result = curator.persist(env.agent_id, _messages("report weight in kg"), entity_id=None)
+    result = curator.persist(
+        env.agent_id, _messages("report weight in kg"), entity_id=None
+    )
 
     assert result.decision == "rejected"
     assert "entity_id" in result.reason
@@ -178,7 +192,9 @@ def test_same_touches_existing_and_creates_nothing_new(env):
     curator = env.make_curator(judge)
 
     result = curator.persist(
-        env.agent_id, _messages("what about churn widget-frobnicator-xyz?"), entity_id="alice"
+        env.agent_id,
+        _messages("what about churn widget-frobnicator-xyz?"),
+        entity_id="alice",
     )
 
     assert result.decision == "persisted"
@@ -187,7 +203,9 @@ def test_same_touches_existing_and_creates_nothing_new(env):
 
     retrieved = env.manager.retrieve("churn widget-frobnicator-xyz", entity_id="alice")
     assert len(retrieved) == 1  # no duplicate row created
-    assert retrieved[0].hits >= 1  # touched (once by curator, once more by this retrieve call)
+    assert (
+        retrieved[0].hits >= 1
+    )  # touched (once by curator, once more by this retrieve call)
 
 
 # -- refine ------------------------------------------------------------------
@@ -209,7 +227,9 @@ def test_refine_preserves_created_at_and_hits(env):
         scope=Scope.personal,
     )
     judge = FakeJudge(
-        JudgeVerdict(verdict=Verdict.refine, related_learning_id=existing.id, learning=generated)
+        JudgeVerdict(
+            verdict=Verdict.refine, related_learning_id=existing.id, learning=generated
+        )
     )
     curator = env.make_curator(judge)
 
@@ -223,7 +243,9 @@ def test_refine_preserves_created_at_and_hits(env):
     assert result.verdict is Verdict.refine
     assert result.learning_id == existing.id  # same row, not a new one
 
-    retrieved = env.manager.retrieve("SQL performance widget-frobnicator-xyz", entity_id="alice")
+    retrieved = env.manager.retrieve(
+        "SQL performance widget-frobnicator-xyz", entity_id="alice"
+    )
     assert len(retrieved) == 1
     refined = retrieved[0]
     assert "composite index" in refined.content
@@ -247,7 +269,11 @@ def test_contradict_supersedes_old_and_creates_new(env):
         scope=Scope.personal,
     )
     judge = FakeJudge(
-        JudgeVerdict(verdict=Verdict.contradict, related_learning_id=existing.id, learning=generated)
+        JudgeVerdict(
+            verdict=Verdict.contradict,
+            related_learning_id=existing.id,
+            learning=generated,
+        )
     )
     curator = env.make_curator(judge)
 
@@ -264,7 +290,9 @@ def test_contradict_supersedes_old_and_creates_new(env):
     assert _row_status(env, existing.id) == "superseded"
     assert _row_status(env, result.learning_id) == "active"
 
-    retrieved = env.manager.retrieve("default timeout widget-frobnicator-xyz", entity_id="alice")
+    retrieved = env.manager.retrieve(
+        "default timeout widget-frobnicator-xyz", entity_id="alice"
+    )
     assert len(retrieved) == 1  # superseded row excluded from retrieval
     assert "60 seconds" in retrieved[0].content
 
@@ -279,12 +307,18 @@ def test_contradict_with_unknown_related_id_falls_back_to_new(env, caplog):
         scope=Scope.personal,
     )
     judge = FakeJudge(
-        JudgeVerdict(verdict=Verdict.contradict, related_learning_id="does-not-exist", learning=generated)
+        JudgeVerdict(
+            verdict=Verdict.contradict,
+            related_learning_id="does-not-exist",
+            learning=generated,
+        )
     )
     curator = env.make_curator(judge)
 
     result = curator.persist(
-        env.agent_id, _messages("what's the retry policy widget-frobnicator-xyz?"), entity_id="alice"
+        env.agent_id,
+        _messages("what's the retry policy widget-frobnicator-xyz?"),
+        entity_id="alice",
     )
 
     assert result.decision == "persisted"
@@ -293,7 +327,9 @@ def test_contradict_with_unknown_related_id_falls_back_to_new(env, caplog):
 
 
 def test_same_with_unknown_related_id_is_rejected(env):
-    judge = FakeJudge(JudgeVerdict(verdict=Verdict.same, related_learning_id="does-not-exist"))
+    judge = FakeJudge(
+        JudgeVerdict(verdict=Verdict.same, related_learning_id="does-not-exist")
+    )
     curator = env.make_curator(judge)
 
     result = curator.persist(env.agent_id, _messages("some message"), entity_id="alice")

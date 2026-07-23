@@ -115,7 +115,9 @@ class LearningCurator:
             result = self._dispatch(agent_id, entity_id, verdict, by_id)
         except CurationError as exc:
             logger.info("rejected: %s", exc)
-            return PersistResult(decision="rejected", verdict=Verdict.reject, reason=str(exc))
+            return PersistResult(
+                decision="rejected", verdict=Verdict.reject, reason=str(exc)
+            )
 
         # First learning for this agent: flip the flag so future stores retrieve.
         if not has_learnings and result.decision == "persisted":
@@ -178,7 +180,9 @@ class LearningCurator:
                     f"the retrieved neighbours: {verdict.related_learning_id!r}"
                 )
             self._touch(existing)
-            return PersistResult(decision="persisted", verdict=Verdict.same, learning_id=existing.id)
+            return PersistResult(
+                decision="persisted", verdict=Verdict.same, learning_id=existing.id
+            )
 
         if verdict.verdict is Verdict.refine:
             existing = by_id.get(verdict.related_learning_id)
@@ -200,7 +204,9 @@ class LearningCurator:
                     verdict.related_learning_id,
                 )
                 return self._persist_new(agent_id, request_entity_id, verdict.learning)
-            return self._persist_contradict(agent_id, existing, verdict.learning, request_entity_id)
+            return self._persist_contradict(
+                agent_id, existing, verdict.learning, request_entity_id
+            )
 
         # verdict.verdict is Verdict.new
         return self._persist_new(agent_id, request_entity_id, verdict.learning)
@@ -259,7 +265,9 @@ class LearningCurator:
             tags=generated.tags,
         )
         self._embed_and_upsert(learning)
-        return PersistResult(decision="persisted", verdict=verdict_type, learning_id=learning.id)
+        return PersistResult(
+            decision="persisted", verdict=verdict_type, learning_id=learning.id
+        )
 
     def _persist_refine(
         self,
@@ -288,7 +296,9 @@ class LearningCurator:
             }
         )
         self._embed_and_upsert(merged)
-        return PersistResult(decision="persisted", verdict=Verdict.refine, learning_id=merged.id)
+        return PersistResult(
+            decision="persisted", verdict=Verdict.refine, learning_id=merged.id
+        )
 
     def _persist_contradict(
         self,
