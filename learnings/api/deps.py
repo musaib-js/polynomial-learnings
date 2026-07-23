@@ -9,7 +9,13 @@ from __future__ import annotations
 
 from fastapi import Request
 
+from ..backend import VectorStoreBackend
 from ..manager import LearningManager
+
+
+def get_backend(request: Request) -> VectorStoreBackend:
+    """The process-wide backend singleton (for cross-agent, agent-less routes)."""
+    return request.app.state.backend
 
 
 def get_manager(agent_id: str, request: Request) -> LearningManager:

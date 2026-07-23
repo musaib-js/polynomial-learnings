@@ -8,12 +8,31 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from ..backend import VectorStoreBackend
 from ..manager import LearningManager
-from ..models import AgentStats, Learning, PersistResult, Scope
-from .deps import get_manager
+from ..models import (
+    AgentStats,
+    AgentSummary,
+    Learning,
+    PersistResult,
+    Scope,
+    TokenUsageStats,
+)
+from .deps import get_backend, get_manager
 from .schemas import PersistRequest, RetrieveRequest, UpdateLearningRequest
 
 router = APIRouter(prefix="/v1")
+
+
+@router.get(
+    "/agents",
+    response_model=list[AgentSummary],
+    summary="List every agent the store has seen",
+)
+def list_agents(
+    backend: VectorStoreBackend = Depends(get_backend),
+) -> list[AgentSummary]:
+    return [AgentSummary(**row) for row in backend.list_agents()]
 
 
 def _require(learning: Learning | None) -> Learning:
@@ -155,3 +174,16 @@ def stats(
     manager: LearningManager = Depends(get_manager),
 ) -> AgentStats:
     return manager.stats(top_n=top_n)
+
+
+# -- token accounting -----------------------------------------------------
+@router.get(
+    "/agents/{agent_id}/tokens",
+    response_model=TokenUsageStats,
+    summary="Aggregate token consumption for this agent",
+)
+def token_usage(
+    agent_id: str,
+    manager: LearningManager = Depends(get_manager),
+) -> TokenUsageStats:
+    return manager.token_stats()

@@ -28,6 +28,8 @@ from .models import (
     PersistResult,
     Scope,
     Status,
+    TokenUsage,
+    TokenUsageRecord,
     Verdict,
     query_from_messages,
 )
@@ -87,24 +89,71 @@ class LearningCurator:
                 reason="no user messages in conversation",
             )
 
-        # Real hybrid retrieval (semantic + keyword + RRF) — the retrieval
-        # engine's actual output, not a stub. See module docstring.
-        neighbours = self._retriever.retrieve(
-            agent_id=agent_id,
-            query=query_from_messages(user_messages),
-            entity_id=entity_id,
-            limit=self._top_k,
-        )
+        # Fast path for a brand-new agent: with no learnings on record, there is
+        # nothing to match against, so skip the (semantic + keyword) neighbour
+        # search entirely. The flag is a one-way hint — see schema.sql.
+        has_learnings = self._backend.get_agent_has_learnings(agent_id)
+        if has_learnings:
+            # Real hybrid retrieval (semantic + keyword + RRF) — the retrieval
+            # engine's actual output, not a stub. See module docstring.
+            neighbours = self._retriever.retrieve(
+                agent_id=agent_id,
+                query=query_from_messages(user_messages),
+                entity_id=entity_id,
+                limit=self._top_k,
+            )
+        else:
+            logger.debug("agent %s has no learnings yet; skipping neighbour search", agent_id)
+            neighbours = []
         by_id = {learning.id: learning for learning in neighbours}
 
         prompt = build_judge_prompt(user_messages, neighbours)
-        verdict = self._judge.evaluate(prompt)
+        verdict, usage = self._evaluate(prompt)
+        self._record_usage(agent_id, entity_id, usage)
 
         try:
-            return self._dispatch(agent_id, entity_id, verdict, by_id)
+            result = self._dispatch(agent_id, entity_id, verdict, by_id)
         except CurationError as exc:
             logger.info("rejected: %s", exc)
             return PersistResult(decision="rejected", verdict=Verdict.reject, reason=str(exc))
+
+        # First learning for this agent: flip the flag so future stores retrieve.
+        if not has_learnings and result.decision == "persisted":
+            self._backend.set_agent_has_learnings(agent_id, True)
+        return result
+
+    # -- judge + token accounting ----------------------------------------
+
+    def _evaluate(self, prompt: str) -> tuple[JudgeVerdict, TokenUsage | None]:
+        """Run the judge, capturing token usage when the judge reports it."""
+        if hasattr(self._judge, "evaluate_with_usage"):
+            return self._judge.evaluate_with_usage(prompt)
+        return self._judge.evaluate(prompt), None
+
+    def _record_usage(
+        self, agent_id: str, entity_id: str | None, usage: TokenUsage | None
+    ) -> None:
+        """Persist the judge call's token consumption, best-effort.
+
+        Never let a token-accounting failure sink an otherwise-successful
+        persist — accounting is observability, not correctness.
+        """
+        if usage is None:
+            return
+        try:
+            self._backend.record_token_usage(
+                TokenUsageRecord(
+                    agent_id=agent_id,
+                    entity_id=entity_id,
+                    operation="judge",
+                    model=usage.model,
+                    prompt_tokens=usage.prompt_tokens,
+                    completion_tokens=usage.completion_tokens,
+                    total_tokens=usage.total_tokens,
+                )
+            )
+        except Exception:  # pragma: no cover - defensive
+            logger.warning("failed to record token usage for agent %s", agent_id, exc_info=True)
 
     # -- dispatch -----------------------------------------------------------
 

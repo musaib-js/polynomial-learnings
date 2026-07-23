@@ -96,6 +96,79 @@ class MostUsedLearning(BaseModel):
     hits: int
 
 
+# -- Token accounting ----------------------------------------------------
+#
+# Every model call (currently the Judge) reports how many tokens it burned;
+# the curator persists one TokenUsageRecord per call, and the API exposes a
+# per-agent aggregate (TokenUsageStats). Local, non-API operations (e.g. the
+# HuggingFace embedder) consume no billable tokens and are not recorded.
+
+
+class TokenUsage(BaseModel):
+    """Tokens consumed by a single model call, as reported by the provider."""
+
+    model: str | None = None
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+
+class TokenUsageRecord(BaseModel):
+    """A persisted token-consumption event for one operation.
+
+    ``operation`` names what spent the tokens (e.g. ``"judge"``); ``entity_id``
+    is carried when the call was made on a specific entity's behalf, so cost can
+    be attributed per user as well as per agent.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    agent_id: str
+    entity_id: str | None = None
+    operation: str
+    model: str | None = None
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    created_at: datetime = Field(default_factory=_now)
+
+
+class OperationTokenTotals(BaseModel):
+    """Token totals for one operation kind within an agent's usage."""
+
+    operation: str
+    calls: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+class TokenUsageStats(BaseModel):
+    """Aggregate token consumption for a single agent."""
+
+    agent_id: str
+    total_calls: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    by_operation: list[OperationTokenTotals] = Field(default_factory=list)
+    by_model: dict[str, int] = Field(default_factory=dict)  # model -> total_tokens
+
+
+class AgentSummary(BaseModel):
+    """A compact, cross-agent roster entry (for the "list agents" endpoint).
+
+    The store is scoped per ``agent_id`` with no agent registry of its own, so
+    the roster is derived: every ``agent_id`` that has ever appeared in the
+    learnings or token-usage tables, with just enough signal to render a card.
+    """
+
+    agent_id: str
+    total_learnings: int
+    active: int
+    distinct_entities: int
+    last_activity: datetime | None = None
+
+
 class AgentStats(BaseModel):
     """Aggregate statistics for a single agent's stored learnings."""
 
