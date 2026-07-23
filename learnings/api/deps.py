@@ -12,6 +12,7 @@ from functools import lru_cache
 
 from fastapi import Request
 
+from ..backend import VectorStoreBackend
 from ..manager import LearningManager
 from ..reranker import CrossEncoderReranker
 from ..retriever import HybridRetriever
@@ -26,6 +27,11 @@ def get_reranker() -> CrossEncoderReranker:
     # keeps this the single source of truth for which model ships by default.
     model = os.getenv("RERANKER_MODEL")
     return CrossEncoderReranker(model=model) if model else CrossEncoderReranker()
+
+
+def get_backend(request: Request) -> VectorStoreBackend:
+    """The process-wide backend singleton (for cross-agent, agent-less routes)."""
+    return request.app.state.backend
 
 
 def get_manager(agent_id: str, request: Request) -> LearningManager:

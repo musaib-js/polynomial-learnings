@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Protocol, Sequence, runtime_checkable
 
-from .models import Learning
+from .models import Learning, TokenUsageRecord
 
 
 class SearchFilter(dict):
@@ -62,4 +62,40 @@ class VectorStoreBackend(Protocol):
         Returns raw counts/sums plus the ``top_n`` most-used learnings; the
         manager assembles these into an ``AgentStats`` model.
         """
+        ...
+
+    def list_agents(self) -> list[dict]:
+        """Roster of every agent the store has seen, one compact row each.
+
+        There is no agent registry table; the roster is derived from every
+        ``agent_id`` present in the learnings/token tables. Each row carries
+        enough signal (totals, last activity) to render a list entry; the
+        manager wraps these into ``AgentSummary`` models.
+        """
+        ...
+
+    # -- token accounting -------------------------------------------------
+    def record_token_usage(self, record: TokenUsageRecord) -> None:
+        """Persist one token-consumption event."""
+        ...
+
+    def token_usage_stats(self, agent_id: str) -> dict:
+        """Aggregate token consumption for one agent.
+
+        Returns raw totals plus per-operation and per-model breakdowns; the
+        manager assembles these into a ``TokenUsageStats`` model.
+        """
+        ...
+
+    # -- agent learnings flag --------------------------------------------
+    def get_agent_has_learnings(self, agent_id: str) -> bool:
+        """Whether this agent has any learnings (fast path for the store flow).
+
+        Returns ``False`` when no flag row exists yet — a brand-new agent whose
+        neighbour search can be skipped entirely.
+        """
+        ...
+
+    def set_agent_has_learnings(self, agent_id: str, has_learnings: bool = True) -> None:
+        """Mark that this agent now has learnings. Idempotent upsert."""
         ...

@@ -16,7 +16,7 @@ from pgvector.psycopg import register_vector
 from psycopg_pool import ConnectionPool
 
 from .backend import SearchFilter
-from .models import Learning, Outcome, Scope, Status
+from .models import Learning, Outcome, Scope, Status, TokenUsageRecord
 
 _SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schema.sql"
 
@@ -296,3 +296,154 @@ class PgVectorBackend:
                 for r in top
             ],
         }
+
+    def list_agents(self) -> list[dict]:
+        """Derive the agent roster from the learnings and token tables.
+
+        Any ``agent_id`` that has stored a learning *or* merely spent tokens
+        (e.g. a persist that the Judge rejected) counts as a known agent, so
+        the roster unions both sources. Ordered by most recent activity.
+        """
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                """
+                WITH ids AS (
+                    SELECT DISTINCT agent_id FROM learnings
+                    UNION
+                    SELECT DISTINCT agent_id FROM token_usage
+                )
+                SELECT
+                    ids.agent_id,
+                    coalesce(l.total, 0)             AS total_learnings,
+                    coalesce(l.active, 0)            AS active,
+                    coalesce(l.distinct_entities, 0) AS distinct_entities,
+                    l.last_activity
+                FROM ids
+                LEFT JOIN (
+                    SELECT
+                        agent_id,
+                        count(*)                                  AS total,
+                        count(*) FILTER (WHERE status = 'active') AS active,
+                        count(DISTINCT entity_id)                 AS distinct_entities,
+                        greatest(max(last_used_at), max(created_at)) AS last_activity
+                    FROM learnings
+                    GROUP BY agent_id
+                ) l ON l.agent_id = ids.agent_id
+                ORDER BY l.last_activity DESC NULLS LAST, ids.agent_id
+                """
+            ).fetchall()
+
+        return [
+            {
+                "agent_id": r[0],
+                "total_learnings": int(r[1]),
+                "active": int(r[2]),
+                "distinct_entities": int(r[3]),
+                "last_activity": r[4],
+            }
+            for r in rows
+        ]
+
+    # -- token accounting -------------------------------------------------
+    def record_token_usage(self, record: TokenUsageRecord) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO token_usage (
+                    id, agent_id, entity_id, operation, model,
+                    prompt_tokens, completion_tokens, total_tokens, created_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    record.id,
+                    record.agent_id,
+                    record.entity_id,
+                    record.operation,
+                    record.model,
+                    record.prompt_tokens,
+                    record.completion_tokens,
+                    record.total_tokens,
+                    record.created_at,
+                ),
+            )
+
+    def token_usage_stats(self, agent_id: str) -> dict:
+        with self._pool.connection() as conn:
+            agg = conn.execute(
+                """
+                SELECT
+                    count(*)                              AS total_calls,
+                    coalesce(sum(prompt_tokens), 0)       AS prompt_tokens,
+                    coalesce(sum(completion_tokens), 0)   AS completion_tokens,
+                    coalesce(sum(total_tokens), 0)        AS total_tokens
+                FROM token_usage
+                WHERE agent_id = %s
+                """,
+                [agent_id],
+            ).fetchone()
+
+            by_operation = conn.execute(
+                """
+                SELECT
+                    operation,
+                    count(*)                              AS calls,
+                    coalesce(sum(prompt_tokens), 0)       AS prompt_tokens,
+                    coalesce(sum(completion_tokens), 0)   AS completion_tokens,
+                    coalesce(sum(total_tokens), 0)        AS total_tokens
+                FROM token_usage
+                WHERE agent_id = %s
+                GROUP BY operation
+                ORDER BY total_tokens DESC
+                """,
+                [agent_id],
+            ).fetchall()
+
+            by_model = conn.execute(
+                """
+                SELECT coalesce(model, 'unknown'), coalesce(sum(total_tokens), 0)
+                FROM token_usage
+                WHERE agent_id = %s
+                GROUP BY model
+                """,
+                [agent_id],
+            ).fetchall()
+
+        return {
+            "total_calls": agg[0],
+            "prompt_tokens": int(agg[1]),
+            "completion_tokens": int(agg[2]),
+            "total_tokens": int(agg[3]),
+            "by_operation": [
+                {
+                    "operation": r[0],
+                    "calls": r[1],
+                    "prompt_tokens": int(r[2]),
+                    "completion_tokens": int(r[3]),
+                    "total_tokens": int(r[4]),
+                }
+                for r in by_operation
+            ],
+            "by_model": {r[0]: int(r[1]) for r in by_model},
+        }
+
+    # -- agent learnings flag --------------------------------------------
+    def get_agent_has_learnings(self, agent_id: str) -> bool:
+        with self._pool.connection() as conn:
+            row = conn.execute(
+                "SELECT has_learnings FROM agent_learnings WHERE agent_id = %s",
+                [agent_id],
+            ).fetchone()
+        return bool(row[0]) if row is not None else False
+
+    def set_agent_has_learnings(self, agent_id: str, has_learnings: bool = True) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO agent_learnings (agent_id, has_learnings)
+                VALUES (%s, %s)
+                ON CONFLICT (agent_id) DO UPDATE SET
+                    has_learnings = EXCLUDED.has_learnings,
+                    updated_at = now()
+                """,
+                [agent_id, has_learnings],
+            )

@@ -25,10 +25,12 @@ from .models import (
     Learning,
     Message,
     MostUsedLearning,
+    OperationTokenTotals,
     Outcome,
     PersistResult,
     Scope,
     Status,
+    TokenUsageStats,
     query_from_messages,
 )
 from .retriever import HybridRetriever
@@ -91,6 +93,9 @@ class LearningManager:
         )
         embedding = self._embedder.embed([learning.embedding_text()])[0]
         self._backend.upsert(learning, embedding)
+        # Mark that this agent now has learnings, so the curated store path can
+        # skip the neighbour search only when the agent is genuinely empty.
+        self._backend.set_agent_has_learnings(self._agent_id, True)
         return learning
 
     def retrieve(
@@ -254,6 +259,19 @@ class LearningManager:
             last_used_at=raw["last_used_at"],
             last_created_at=raw["last_created_at"],
             most_used=[MostUsedLearning(**m) for m in raw["most_used"]],
+        )
+
+    def token_stats(self) -> TokenUsageStats:
+        """Aggregate token consumption for this agent (cost accounting)."""
+        raw = self._backend.token_usage_stats(self._agent_id)
+        return TokenUsageStats(
+            agent_id=self._agent_id,
+            total_calls=raw["total_calls"],
+            prompt_tokens=raw["prompt_tokens"],
+            completion_tokens=raw["completion_tokens"],
+            total_tokens=raw["total_tokens"],
+            by_operation=[OperationTokenTotals(**op) for op in raw["by_operation"]],
+            by_model=raw["by_model"],
         )
 
     def format_for_prompt(self, learnings: list[Learning]) -> str:

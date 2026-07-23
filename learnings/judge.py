@@ -14,7 +14,7 @@ from typing import Callable, Protocol, runtime_checkable
 from pydantic import ValidationError
 
 from .exceptions import JudgeOutputError, JudgeUnavailableError
-from .models import JudgeVerdict
+from .models import JudgeVerdict, TokenUsage
 
 # Models Groq currently supports for strict, schema-enforced structured
 # output (constrained decoding). Every other model falls back to plain
@@ -25,7 +25,14 @@ _STRICT_CAPABLE_MODELS = {"openai/gpt-oss-20b", "openai/gpt-oss-120b"}
 
 @runtime_checkable
 class Judge(Protocol):
-    """Takes a structured prompt, returns a structured verdict."""
+    """Takes a structured prompt, returns a structured verdict.
+
+    A Judge may *optionally* also implement
+    ``evaluate_with_usage(prompt) -> (JudgeVerdict, TokenUsage | None)`` to
+    report token consumption. Callers that want token accounting duck-type for
+    it (``hasattr(judge, "evaluate_with_usage")``) and fall back to ``evaluate``
+    otherwise, so this stays off the required interface.
+    """
 
     def evaluate(self, prompt: str) -> JudgeVerdict:
         """Classify a persist candidate and, if warranted, generate it."""
@@ -118,7 +125,18 @@ class GroqJudge:
         return {"type": "json_object"}
 
     def evaluate(self, prompt: str) -> JudgeVerdict:
+        verdict, _ = self.evaluate_with_usage(prompt)
+        return verdict
+
+    def evaluate_with_usage(self, prompt: str) -> tuple[JudgeVerdict, TokenUsage]:
+        """Like :meth:`evaluate`, but also returns the tokens consumed.
+
+        Token counts accumulate across retries, since every attempt is a real
+        API call that burns tokens — the returned :class:`TokenUsage` reflects
+        the full cost of producing the verdict, not just the successful call.
+        """
         last_error: Exception | None = None
+        usage = TokenUsage(model=self._model)
         for _ in range(self._max_retries + 1):
             try:
                 completion = self._client.chat.completions.create(
@@ -130,9 +148,11 @@ class GroqJudge:
             except Exception as exc:  # network / API-level failure, not retried here
                 raise JudgeUnavailableError(str(exc)) from exc
 
+            self._accumulate_usage(usage, completion)
+
             raw = completion.choices[0].message.content
             try:
-                return JudgeVerdict.model_validate_json(raw)
+                return JudgeVerdict.model_validate_json(raw), usage
             except (ValidationError, ValueError) as exc:
                 last_error = exc
                 continue
@@ -140,4 +160,23 @@ class GroqJudge:
         raise JudgeOutputError(
             f"Judge output failed validation after {self._max_retries + 1} "
             f"attempt(s): {last_error}"
+        )
+
+    @staticmethod
+    def _accumulate_usage(usage: TokenUsage, completion: object) -> None:
+        """Add one completion's token counts into ``usage`` (best-effort).
+
+        Providers may omit usage on some responses; a missing block simply
+        contributes nothing rather than failing the call.
+        """
+        raw = getattr(completion, "usage", None)
+        if raw is None:
+            return
+        usage.prompt_tokens += int(getattr(raw, "prompt_tokens", 0) or 0)
+        usage.completion_tokens += int(getattr(raw, "completion_tokens", 0) or 0)
+        total = getattr(raw, "total_tokens", None)
+        usage.total_tokens += (
+            int(total) if total is not None
+            else int(getattr(raw, "prompt_tokens", 0) or 0)
+            + int(getattr(raw, "completion_tokens", 0) or 0)
         )
