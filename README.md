@@ -96,7 +96,8 @@ Optional environment variables:
 | ------------------ | ------------------------------ | ---------------------------------------------------------- |
 | `DATABASE_URL`     | `PgVectorBackend`, API         | Postgres DSN. Required. The only setting with no default.  |
 | `GROQ_API_KEY`     | `GroqJudge`, API               | Enables the curated persist path. Without it, `/persist` returns 503. |
-| `LEARNINGS_API_KEY`| API                            | Requires `Authorization: Bearer <key>` on every `/v1` route. Unset leaves the API open. |
+| `JWT_SECRET`       | API                            | Signs dashboard session tokens. **Required** — startup aborts while it is the built-in placeholder. |
+| `CORS_ORIGINS`     | API                            | Comma-separated browser origins allowed to call the API. Empty means no cross-origin access. |
 | `EMBEDDER_MODEL`   | API                            | Override the sentence-transformers model. Needs a database whose vector column matches the new dimension. |
 | `RERANKER_MODEL`   | API                            | Override the cross-encoder model. Defaults to the class default. |
 | `RERANK_THRESHOLD` | API                            | Relevance cutoff after reranking. Default `0.52`.          |
@@ -767,27 +768,54 @@ Install the `api` extra and run:
 ```bash
 export DATABASE_URL=postgresql://polynomial:polynomial@localhost:5433/learnings
 export GROQ_API_KEY=...          # optional; without it /persist returns 503
-export LEARNINGS_API_KEY=...     # optional; without it every /v1 route is open
+export JWT_SECRET=...            # required; the API refuses to start without it
 export EMBEDDER_MODEL=...        # optional; defaults to all-MiniLM-L6-v2 (384 dims)
+alembic upgrade head             # tenancy tables (users, orgs, api_keys, agents)
 uvicorn learnings.api.app:app
 ```
 
 ### Authentication
 
-Set `LEARNINGS_API_KEY` and every route under `/v1` requires
-`Authorization: Bearer <key>`; anything else gets a `401`. `/health` is never
-gated, so liveness probes keep working. Leaving it unset disables the check
-entirely — convenient locally, but any real deployment should set it.
+There are two audiences, authenticated differently.
 
-Clients pass the key through `LearningClient`'s `headers`:
+**People** use the dashboard: sign up with email and password (hashed with
+argon2id), log in, receive a short-lived JWT. That token is only for
+`/v1/auth/*` and `/v1/dashboard/*`.
+
+**Agents** use API keys. Create one from the dashboard's API Keys screen. The
+server generates `sk_live_` + 32 random bytes and shows it **once** — only
+`sha256(key)` is stored, alongside a short prefix so the UI can tell keys
+apart. The database therefore holds nothing that can call the API.
+
+Every `/v1/agents/{agent_id}/...` request is checked twice:
+
+1. **Is the key good?** Hash the presented key, look it up, and reject it if
+   there's no match, if `revoked_at` is set, or if `expires_at` has passed —
+   all `401`. On success `last_used_at` is stamped.
+2. **Does the caller own this agent?** The key identifies an organization; if
+   that org doesn't own the `agent_id` in the path, the answer is `404`, not
+   `403` — a `403` would confirm the agent exists.
+
+Rotation and revocation need no restart: mint a second key, move clients over,
+then revoke the first. Revoking one key never affects the others.
+
+Clients pass the key through `LearningClient`'s `headers` (the server also
+accepts `X-API-Key`):
 
 ```python
 LearningClient(
-    agent_id="insights-bot",
+    agent_id="agt_...",          # the id the dashboard assigned
     base_url="https://learnings.internal",
     headers={"Authorization": f"Bearer {os.environ['LEARNINGS_API_KEY']}"},
 )
 ```
+
+`/health` is outside `/v1` and never gated, so liveness probes keep working.
+
+> Two different hashes on purpose: passwords are short and human-chosen, so
+> they get a deliberately slow hash (argon2id) and are only checked at login.
+> API keys are 32 bytes of randomness checked on *every* request, so they get
+> sha256 — a slow hash there would add latency without adding security.
 
 At startup the app creates the embedder, runs `init_schema()`, opens the
 `PgVectorBackend` pool, and constructs the judge if `GROQ_API_KEY` is set —
