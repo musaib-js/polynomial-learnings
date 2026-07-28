@@ -111,6 +111,22 @@ def query_from_messages(messages: list[Message]) -> str:
     return " ".join(m.content for m in messages if m.content)
 
 
+def format_learnings_for_prompt(learnings: list[Learning]) -> str:
+    """Render learnings as a concise, applicable block for a system prompt.
+
+    Returns an empty string when there is nothing to show, so callers can
+    concatenate the result unconditionally. Lives here so the in-process
+    manager and the API-backed adapter share one definition of the format —
+    an agent must see identical text regardless of which one produced it.
+    """
+    if not learnings:
+        return ""
+    lines = ["Relevant learnings from past interactions:"]
+    for learning in learnings:
+        lines.append(f"- When {learning.context}: {learning.content}")
+    return "\n".join(lines)
+
+
 class MostUsedLearning(BaseModel):
     """A compact reference to a frequently retrieved learning (for stats)."""
 
@@ -264,7 +280,7 @@ class JudgeVerdict(BaseModel):
     learning: GeneratedLearning | None = None
 
     @model_validator(mode="after")
-    def _check_verdict_invariants(self) -> "JudgeVerdict":
+    def _check_verdict_invariants(self) -> JudgeVerdict:
         if self.verdict is Verdict.reject and self.learning is not None:
             raise ValueError("a rejected verdict must not carry a generated learning")
         if self.verdict in (Verdict.same, Verdict.refine, Verdict.contradict):
@@ -290,7 +306,7 @@ class PersistResult(BaseModel):
     reason: str | None = None
 
     @model_validator(mode="after")
-    def _check_decision_invariants(self) -> "PersistResult":
+    def _check_decision_invariants(self) -> PersistResult:
         if self.decision == "rejected":
             if self.learning_id is not None or self.superseded_id is not None:
                 raise ValueError("a rejected result must not carry learning ids")

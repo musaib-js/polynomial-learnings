@@ -18,15 +18,15 @@ out candidates are never touched.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import logging
-
-logger = logging.getLogger(__name__)
+from datetime import datetime, timezone
 
 from .backend import SearchFilter, VectorStoreBackend
 from .embedder import Embedder
 from .models import Learning
 from .reranker import Reranker
+
+logger = logging.getLogger(__name__)
 
 
 def reciprocal_rank_fusion(
@@ -114,8 +114,13 @@ class HybridRetriever:
         semantic = self._backend.vector_search(query_vector, flt, candidate_k)
         keyword = self._backend.keyword_search(query, flt, candidate_k)
 
+        # Both searches return (learning, score) pairs; RRF re-ranks from
+        # position alone, so the scores are dropped here.
         fused = reciprocal_rank_fusion(
-            [[l for l, _ in semantic], [l for l, _ in keyword]],
+            [
+                [learning for learning, _ in semantic],
+                [learning for learning, _ in keyword],
+            ],
             weights=[self._semantic_weight, self._keyword_weight],
             k=self._rrf_k,
         )

@@ -31,6 +31,7 @@ from .models import (
     Scope,
     Status,
     TokenUsageStats,
+    format_learnings_for_prompt,
     query_from_messages,
 )
 from .retriever import HybridRetriever
@@ -276,9 +277,4 @@ class LearningManager:
 
     def format_for_prompt(self, learnings: list[Learning]) -> str:
         """Render learnings as a concise, applicable block for a system prompt."""
-        if not learnings:
-            return ""
-        lines = ["Relevant learnings from past interactions:"]
-        for learning in learnings:
-            lines.append(f"- When {learning.context}: {learning.content}")
-        return "\n".join(lines)
+        return format_learnings_for_prompt(learnings)
