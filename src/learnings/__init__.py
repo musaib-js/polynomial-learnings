@@ -10,6 +10,7 @@ from .exceptions import (
     JudgeOutputError,
     JudgeUnavailableError,
     LearningsError,
+    SchemaDimensionError,
 )
 from .judge import FakeJudge, GroqJudge, Judge
 from .manager import LearningManager
@@ -30,9 +31,27 @@ from .models import (
     TokenUsageStats,
     Verdict,
 )
-from .pgvector_backend import PgVectorBackend, init_schema
 from .reranker import CrossEncoderReranker, FakeReranker, Reranker
 from .retriever import HybridRetriever, reciprocal_rank_fusion
+
+# ``pgvector_backend`` is the only module that imports psycopg, so importing it
+# here would force every agent-side SDK install to carry a Postgres driver it
+# never uses. Resolved lazily instead (PEP 562), so ``from learnings import
+# PgVectorBackend`` still works wherever the ``server`` extra is installed.
+_SERVER_ONLY = {"PgVectorBackend", "init_schema"}
+
+
+def __getattr__(name: str):
+    if name in _SERVER_ONLY:
+        try:
+            from . import pgvector_backend
+        except ModuleNotFoundError as exc:
+            raise ModuleNotFoundError(
+                f"{name} needs the Postgres backend, which ships in the 'server' "
+                f"extra: pip install polynomial-learnings[server]"
+            ) from exc
+        return getattr(pgvector_backend, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # Library convention: never configure handlers here — that's the
 # application's job. A NullHandler silences "no handlers found" warnings
@@ -75,4 +94,5 @@ __all__ = [
     "JudgeUnavailableError",
     "JudgeOutputError",
     "CurationError",
+    "SchemaDimensionError",
 ]

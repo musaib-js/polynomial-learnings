@@ -9,7 +9,8 @@ produces genuine curated verdicts out of the box.
 from __future__ import annotations
 
 import os
-from typing import Callable, Protocol, runtime_checkable
+from collections.abc import Callable
+from typing import Protocol, runtime_checkable
 
 from pydantic import ValidationError
 
@@ -93,6 +94,12 @@ class GroqJudge:
 
     Requires the ``groq`` extra (``pip install polynomial-learnings[groq]``)
     and a ``GROQ_API_KEY`` (env var, or pass ``api_key`` explicitly).
+
+    ``timeout`` caps each API call. It is not optional in practice: the API's
+    handlers are sync, so an upstream that never answers would pin a FastAPI
+    threadpool thread indefinitely and, with enough of them, stall every route.
+    The 30s default matches ``LearningClient``'s, so both network hops in the
+    two-tier topology give up on the same schedule.
     """
 
     def __init__(
@@ -101,10 +108,13 @@ class GroqJudge:
         api_key: str | None = None,
         temperature: float = 0.0,
         max_retries: int = 1,
+        timeout: float = 30.0,
     ):
         from groq import Groq  # optional dep, per HuggingFaceEmbedder's pattern
 
-        self._client = Groq(api_key=api_key or os.environ["GROQ_API_KEY"])
+        self._client = Groq(
+            api_key=api_key or os.environ["GROQ_API_KEY"], timeout=timeout
+        )
         self._model = model
         self._temperature = temperature
         self._max_retries = max_retries

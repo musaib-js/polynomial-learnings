@@ -21,32 +21,50 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
+# Core stays deliberately tiny: the agent-side SDK talks HTTP and nothing else,
+# so the Postgres driver lives in the `server` extra rather than here. Installing
+# `[client]` or `[pydantic-ai]` must not pull a database stack into an agent
+# process that never touches one.
 dependencies = [
     "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+server = ["psycopg[binary]>=3.1", "psycopg-pool>=3.2", "pgvector>=0.3"]
+huggingface = ["sentence-transformers>=2.2"]
+pydantic-ai = ["pydantic-ai>=0.0.14", "httpx>=0.27"]
+# The API constructs PgVectorBackend directly, so it needs the server stack.
+api = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "python-dotenv>=1.0",
     "psycopg[binary]>=3.1",
     "psycopg-pool>=3.2",
     "pgvector>=0.3",
 ]
-
-[project.optional-dependencies]
-huggingface = ["sentence-transformers>=2.2"]
-pydantic-ai = ["pydantic-ai>=0.0.14", "httpx>=0.27"]
-api = ["fastapi>=0.110", "uvicorn[standard]>=0.27"]
 client = ["httpx>=0.27"]
 groq = ["groq>=0.11"]
 all = [
+    "psycopg[binary]>=3.1",
+    "psycopg-pool>=3.2",
+    "pgvector>=0.3",
     "sentence-transformers>=2.2",
     "pydantic-ai>=0.0.14",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
+    "python-dotenv>=1.0",
     "httpx>=0.27",
     "groq>=0.11",
 ]
 dev = [
     "pytest>=8.0",
+    "psycopg[binary]>=3.1",
+    "psycopg-pool>=3.2",
+    "pgvector>=0.3",
     "sentence-transformers>=2.2",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
+    "python-dotenv>=1.0",
     "httpx>=0.27",
     "groq>=0.11",
 ]
@@ -55,7 +73,7 @@ dev = [
 Repository = "https://github.com/musaib-js/polynomial-learnings"
 
 [tool.setuptools.package-data]
-learnings = ["*.sql"]
+learnings = ["*.sql", "py.typed"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
