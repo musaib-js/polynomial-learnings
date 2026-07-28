@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
 import {
   IconActivity,
+  IconChart,
+  IconHome,
+  IconKey,
   IconLearnings,
   IconOverview,
   IconSandbox,
@@ -8,12 +11,23 @@ import {
 } from "./icons";
 import { useApp } from "../context/AppContext";
 
-export type Route = "overview" | "learnings" | "sandbox" | "activity" | "settings";
+export type Route =
+  | "home"
+  | "overview"
+  | "learnings"
+  | "analytics"
+  | "apikeys"
+  | "sandbox"
+  | "activity"
+  | "settings";
 
 const NAV: { key: Route; label: string; icon: (p: { size?: number }) => ReactNode }[] =
   [
+    { key: "home", label: "Home", icon: IconHome },
     { key: "overview", label: "Overview", icon: IconOverview },
     { key: "learnings", label: "Learnings", icon: IconLearnings },
+    { key: "analytics", label: "Analytics", icon: IconChart },
+    { key: "apikeys", label: "API Keys", icon: IconKey },
     { key: "sandbox", label: "Sandbox", icon: IconSandbox },
     { key: "activity", label: "Activity", icon: IconActivity },
     { key: "settings", label: "Settings", icon: IconSettings },

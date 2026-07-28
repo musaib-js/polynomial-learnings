@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 
 from learnings import HuggingFaceEmbedder, PgVectorBackend
 from learnings.api.app import create_app
+from learnings.auth.deps import require_agent_ownership
 from learnings.judge import FakeJudge
 from learnings.models import GeneratedLearning, JudgeVerdict, Scope, Verdict
 
@@ -35,6 +36,9 @@ def agent_id():
 @pytest.fixture
 def client():
     app = create_app()
+    # These suites test the persist engine, not the SaaS auth layer — bypass
+    # the ownership check (same dependency_overrides pattern as test_api.py).
+    app.dependency_overrides[require_agent_ownership] = lambda: None
     with TestClient(app) as c:
         # Reuse the cached embedder/backend, same pattern as test_api.py.
         app.state.embedder = EMBEDDER

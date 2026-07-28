@@ -29,6 +29,13 @@ class Status(str, Enum):
     active = "active"
     superseded = "superseded"
     rejected = "rejected"
+    # Opt-in only (see LearningCurator's `require_approval` flag, gated by
+    # the SaaS `agents.require_approval` column): a judge-generated learning
+    # awaiting human approve/disapprove before it becomes retrievable. Every
+    # agent defaults to NOT requiring approval, so this status never appears
+    # unless a customer explicitly opts in — existing behavior (judge writes
+    # land as `active` immediately) is unchanged everywhere else.
+    pending_approval = "pending_approval"
 
 
 def _now() -> datetime:

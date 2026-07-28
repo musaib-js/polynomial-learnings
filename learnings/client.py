@@ -160,7 +160,11 @@ class LearningClient:
         detail: str
         try:
             body = response.json()
-            detail = body.get("detail", response.text) if isinstance(body, dict) else response.text
+            detail = (
+                body.get("detail", response.text)
+                if isinstance(body, dict)
+                else response.text
+            )
         except ValueError:
             detail = response.text
         raise LearningsAPIError(

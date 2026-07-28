@@ -99,15 +99,18 @@ function AgentRoster({
   const [agents, setAgents] = useState<AgentSummary[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [forbidden, setForbidden] = useState(false);
 
   const load = useCallback(async () => {
     if (!hasBase) return;
     setLoading(true);
     setError(null);
+    setForbidden(false);
     try {
       setAgents(await api.listAgents());
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
+      setForbidden(err instanceof ApiError && (err.status === 401 || err.status === 403));
       setAgents(null);
     } finally {
       setLoading(false);
@@ -158,13 +161,43 @@ function AgentRoster({
           />
         </div>
       ) : error ? (
-        <div
-          className="panel px-4 py-3 flex items-center justify-between gap-4"
-          style={{ borderColor: "var(--danger-border)", background: "var(--danger-bg)" }}
-        >
-          <div className="text-[13px]" style={{ color: "var(--danger)" }}>{error}</div>
-          <RefreshButton onClick={load} loading={loading} label="Retry" />
-        </div>
+        forbidden ? (
+          // Listing every agent across every tenant is a platform-staff-only
+          // endpoint (see GET /v1/agents in learnings/api/routes.py) — an
+          // ordinary signed-in customer isn't meant to see it. Fall back to
+          // the one agent already configured (auto-provisioned at signup)
+          // instead of showing this as an error.
+          <div className="panel">
+            <EmptyState
+              icon={<IconLearnings size={20} />}
+              title="Your agent"
+              hint={
+                settings.agentId
+                  ? `Cross-tenant roster is admin-only — jump straight into ${settings.agentId}.`
+                  : "No agent configured yet. Open Settings to set one up."
+              }
+              action={
+                settings.agentId ? (
+                  <button className="btn btn-primary" onClick={() => onOpen(settings.agentId)}>
+                    Open {settings.agentId}
+                  </button>
+                ) : (
+                  <button className="btn" onClick={() => onNavigate("settings")}>
+                    Open settings
+                  </button>
+                )
+              }
+            />
+          </div>
+        ) : (
+          <div
+            className="panel px-4 py-3 flex items-center justify-between gap-4"
+            style={{ borderColor: "var(--danger-border)", background: "var(--danger-bg)" }}
+          >
+            <div className="text-[13px]" style={{ color: "var(--danger)" }}>{error}</div>
+            <RefreshButton onClick={load} loading={loading} label="Retry" />
+          </div>
+        )
       ) : loading && !agents ? (
         <div className="grid place-items-center py-20"><Spinner size={22} /></div>
       ) : agents && agents.length === 0 ? (
