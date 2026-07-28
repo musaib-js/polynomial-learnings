@@ -19,6 +19,7 @@ out candidates are never touched.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import datetime, timezone
 
 from .backend import SearchFilter, VectorStoreBackend
@@ -71,9 +72,16 @@ class HybridRetriever:
         rrf_k: int = 60,
         reranker: Reranker | None = None,
         rerank_threshold: float = 0.52,
+        event_recorder: Callable[[Learning], None] | None = None,
     ):
         self._backend = backend
         self._embedder = embedder
+        # Optional analytics side-channel: called once per actually-returned
+        # (touched) learning, purely additive — never affects ranking or the
+        # returned list. None (the default) preserves exact prior behavior;
+        # wired to a real recorder only in learnings/api/deps.py, which has
+        # access to the SaaS `learning_events` table.
+        self._event_recorder = event_recorder
         self._semantic_weight = semantic_weight
         self._keyword_weight = keyword_weight
         self._rrf_k = rrf_k
@@ -188,3 +196,5 @@ class HybridRetriever:
             learning.hits += 1
             learning.last_used_at = now
             self._backend.update(learning.id, hits=learning.hits, last_used_at=now)
+            if self._event_recorder is not None:
+                self._event_recorder(learning)

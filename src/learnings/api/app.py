@@ -13,21 +13,45 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from ..auth.store import AuthStore
 from ..embedder import HuggingFaceEmbedder
 from ..judge import GroqJudge
 from ..pgvector_backend import PgVectorBackend, init_schema
+from ..settings import INSECURE_JWT_SECRET, settings
+from .auth_routes import router as auth_router
+from .dashboard_routes import router as dashboard_router
 from .routes import router
 
+# Only needed for the plain os.environ reads below (DATABASE_URL,
+# GROQ_API_KEY) — learnings/settings.py reads .env itself via pydantic-
+# settings' env_file, so Settings() is correct regardless of import order or
+# whether load_dotenv() has run yet.
 load_dotenv()
+
+# Surfaced in the startup error below so a mislocated .env is obvious.
+_ENV_FILE_HINT = Path(__file__).resolve().parent.parent.parent.parent / ".env"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Fail loudly rather than serving with a known secret. Anyone holding it
+    # can mint a valid session token for any user, and the failure mode is
+    # otherwise silent: pydantic-settings leaves fields at their defaults when
+    # it cannot find .env, so a mislocated env file alone would trigger this.
+    if settings.jwt_secret == INSECURE_JWT_SECRET:
+        raise RuntimeError(
+            "JWT_SECRET is still the built-in placeholder. Set JWT_SECRET in "
+            ".env (or the environment) to a random secret before starting the "
+            "API. If you did set it, check that .env is where settings.py "
+            f"looks for it: {_ENV_FILE_HINT}"
+        )
+
     dsn = os.environ["DATABASE_URL"]
     # No hardcoded fallback string here on purpose, matching get_reranker:
     # deferring to HuggingFaceEmbedder's own default keeps that class the
@@ -48,13 +72,15 @@ async def lifespan(app: FastAPI):
     # routes never touch app.state.judge; only /persist needs it, and
     # returns 503 (not a crash) when it's None. See deps.get_manager.
     app.state.judge = GroqJudge() if os.environ.get("GROQ_API_KEY") else None
-    # Nullable by design: LEARNINGS_API_KEY is optional at deploy time — unset
-    # means every /v1 route is open (fine for local/dev). See deps.require_api_key.
-    app.state.api_key = os.environ.get("LEARNINGS_API_KEY")
+    # Tenancy/identity store (users, orgs, api keys, agent ownership) — a
+    # separate pool from the vector-store backend since this data has no
+    # vectors and can scale/fail independently. See learnings/auth/store.py.
+    app.state.auth_store = AuthStore(dsn)
     try:
         yield
     finally:
         backend.close()
+        app.state.auth_store.close()
 
 
 def create_app() -> FastAPI:
@@ -64,16 +90,18 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Demo-friendly CORS: the static UI may be opened from file:// or a
-    # different port. Wide-open is fine here because there is no auth and no
-    # cookies; tighten allow_origins for any real deployment.
+    # CORS_ORIGINS is an explicit allowlist (see learnings/settings.py) — no
+    # wildcard default. Auth uses Authorization: Bearer (not cookies), so
+    # allow_credentials=True is not needed here.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=settings.cors_origin_list,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
+    app.include_router(auth_router)
+    app.include_router(dashboard_router)
     app.include_router(router)
 
     @app.get("/health", summary="Liveness/readiness probe")

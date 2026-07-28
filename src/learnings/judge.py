@@ -186,7 +186,8 @@ class GroqJudge:
         usage.completion_tokens += int(getattr(raw, "completion_tokens", 0) or 0)
         total = getattr(raw, "total_tokens", None)
         usage.total_tokens += (
-            int(total) if total is not None
+            int(total)
+            if total is not None
             else int(getattr(raw, "prompt_tokens", 0) or 0)
             + int(getattr(raw, "completion_tokens", 0) or 0)
         )

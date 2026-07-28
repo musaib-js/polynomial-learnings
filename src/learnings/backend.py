@@ -97,6 +97,8 @@ class VectorStoreBackend(Protocol):
         """
         ...
 
-    def set_agent_has_learnings(self, agent_id: str, has_learnings: bool = True) -> None:
+    def set_agent_has_learnings(
+        self, agent_id: str, has_learnings: bool = True
+    ) -> None:
         """Mark that this agent now has learnings. Idempotent upsert."""
         ...

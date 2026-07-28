@@ -16,10 +16,13 @@ venv/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.cache/
 
-# Not part of the SDK — kept out of the distributable package
-/dashboard
-/docker-compose.yml
+# Cache & accidental literal ~ folders
+~/
+
+# Not part of the distributable package. The dashboard is tracked again —
+# it is the only interface for minting and revoking API keys.
 /scripts
 /test_score.py
 

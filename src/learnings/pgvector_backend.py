@@ -469,7 +469,9 @@ class PgVectorBackend:
             ).fetchone()
         return bool(row[0]) if row is not None else False
 
-    def set_agent_has_learnings(self, agent_id: str, has_learnings: bool = True) -> None:
+    def set_agent_has_learnings(
+        self, agent_id: str, has_learnings: bool = True
+    ) -> None:
         with self._pool.connection() as conn:
             conn.execute(
                 """

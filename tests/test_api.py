@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 
 from learnings import HuggingFaceEmbedder, LearningManager, PgVectorBackend, Scope
 from learnings.api.app import create_app
+from learnings.auth.deps import require_agent_ownership
 
 DSN = os.environ.get("DATABASE_URL")
 pytestmark = pytest.mark.skipif(not DSN, reason="DATABASE_URL not set")
@@ -51,6 +52,11 @@ def client():
     app = create_app()
     app.state.embedder = EMBEDDER
     app.state.backend = PgVectorBackend(DSN)
+    # These suites test the engine (retrieval/curation/management), not the
+    # SaaS auth layer — bypass the ownership check the same way the plan's
+    # test-fixture guidance recommends (dependency_overrides, not a global
+    # auth-disable flag that could accidentally ship enabled).
+    app.dependency_overrides[require_agent_ownership] = lambda: None
     yield TestClient(app)
     app.state.backend.close()
 
