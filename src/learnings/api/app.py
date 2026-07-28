@@ -48,6 +48,9 @@ async def lifespan(app: FastAPI):
     # routes never touch app.state.judge; only /persist needs it, and
     # returns 503 (not a crash) when it's None. See deps.get_manager.
     app.state.judge = GroqJudge() if os.environ.get("GROQ_API_KEY") else None
+    # Nullable by design: LEARNINGS_API_KEY is optional at deploy time — unset
+    # means every /v1 route is open (fine for local/dev). See deps.require_api_key.
+    app.state.api_key = os.environ.get("LEARNINGS_API_KEY")
     try:
         yield
     finally:

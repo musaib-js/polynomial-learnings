@@ -18,7 +18,7 @@ from ..models import (
     Scope,
     TokenUsageStats,
 )
-from .deps import get_backend, get_manager
+from .deps import get_backend, get_manager, require_api_key
 from .schemas import (
     LearningsByScope,
     PersistRequest,
@@ -26,7 +26,7 @@ from .schemas import (
     UpdateLearningRequest,
 )
 
-router = APIRouter(prefix="/v1")
+router = APIRouter(prefix="/v1", dependencies=[Depends(require_api_key)])
 
 
 @router.get(

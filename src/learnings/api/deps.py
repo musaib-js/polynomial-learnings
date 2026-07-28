@@ -10,15 +10,35 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 
-from fastapi import Request
+from fastapi import Depends, HTTPException, Request
+from fastapi.security import APIKeyHeader
 
 from ..backend import VectorStoreBackend
 from ..manager import LearningManager
 from ..reranker import CrossEncoderReranker
 from ..retriever import HybridRetriever
 
+_authorization_header = APIKeyHeader(name="Authorization", auto_error=False)
 
-@lru_cache()
+
+def require_api_key(
+    request: Request,
+    authorization: str | None = Depends(_authorization_header),
+) -> None:
+    """Enforce ``Authorization: Bearer <key>`` when ``LEARNINGS_API_KEY`` is set.
+
+    No-op when the server has no key configured, mirroring the optional
+    ``GROQ_API_KEY``/judge pattern below — local/dev deployments keep working
+    without it, but any real deployment should set one.
+    """
+    expected = getattr(request.app.state, "api_key", None)
+    if expected is None:
+        return
+    if authorization != f"Bearer {expected}":
+        raise HTTPException(status_code=401, detail="invalid or missing API key")
+
+
+@lru_cache
 def get_reranker() -> CrossEncoderReranker:
     # No hardcoded fallback string here on purpose: duplicating the model
     # name in two places let this env var silently pin the OLD default
