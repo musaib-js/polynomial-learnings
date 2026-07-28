@@ -6,9 +6,9 @@ share one shape.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from ..models import Message, Outcome
+from ..models import Learning, Message, Outcome
 
 
 class RetrieveRequest(BaseModel):
@@ -37,6 +37,28 @@ class UpdateLearningRequest(BaseModel):
     tags: list[str] | None = None
     reason: str | None = None
     outcome: Outcome | None = None
+
+
+class LearningsByScope(BaseModel):
+    """Body of ``GET /v1/agents/{agent_id}/learnings``.
+
+    Both visible scopes in a single response, so an agent can load everything it
+    needs — standing preferences included — in one round-trip. Unlike
+    ``/retrieve`` this is *not* relevance-ranked: a preference that never matches
+    a query semantically (e.g. "answer me in a table") still comes back.
+
+    ``global`` is a Python keyword, so the field is ``global_`` with an alias;
+    FastAPI serialises response models by alias, so the JSON key is ``global``.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    personal: list[Learning] = Field(
+        default_factory=list, description="Active personal learnings for the given entity."
+    )
+    global_: list[Learning] = Field(
+        default_factory=list, alias="global", description="Active global learnings for this agent."
+    )
 
 
 class PersistRequest(BaseModel):

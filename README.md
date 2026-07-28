@@ -16,7 +16,7 @@ per-entity isolation.
 - **entity_id** — who a *personal* learning belongs to (user / tenant / bot id).
 - **scope** — `personal` (visible only to that entity) or `global` (visible to all).
 - **Learning** — `context` + `content` (embedded), plus outcome, tags, and
-  ranking signals. See [`models.py`](learnings/models.py).
+  ranking signals. See [`models.py`](src/learnings/models.py).
 
 Isolation is enforced as a SQL **pre-filter** (`agent_id`, and `scope=global`
 OR `entity_id=<this>`) applied before ranking — a personal learning of one

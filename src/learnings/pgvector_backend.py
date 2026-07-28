@@ -18,7 +18,9 @@ from psycopg_pool import ConnectionPool
 from .backend import SearchFilter
 from .models import Learning, Outcome, Scope, Status, TokenUsageRecord
 
-_SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schema.sql"
+# Shipped inside the package (see ``tool.setuptools.package-data``) so
+# ``init_schema`` works from an installed wheel, not just a source checkout.
+_SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
 
 # Columns selected when reconstructing a Learning, in a fixed order.
 _COLUMNS = (

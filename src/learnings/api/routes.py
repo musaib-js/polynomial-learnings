@@ -19,7 +19,12 @@ from ..models import (
     TokenUsageStats,
 )
 from .deps import get_backend, get_manager
-from .schemas import PersistRequest, RetrieveRequest, UpdateLearningRequest
+from .schemas import (
+    LearningsByScope,
+    PersistRequest,
+    RetrieveRequest,
+    UpdateLearningRequest,
+)
 
 router = APIRouter(prefix="/v1")
 
@@ -76,6 +81,31 @@ def persist(
         # agent (e.g. GROQ_API_KEY unset) — a server configuration issue,
         # not a bad request.
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get(
+    "/agents/{agent_id}/learnings",
+    response_model=LearningsByScope,
+    summary="List this agent's global learnings and one entity's personal learnings",
+)
+def list_all_learnings(
+    agent_id: str,
+    entity_id: str = Query(..., description="Whose personal learnings to include."),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    manager: LearningManager = Depends(get_manager),
+) -> LearningsByScope:
+    """Both visible scopes in one round-trip.
+
+    Convenience over calling ``/learnings/personal`` and ``/learnings/global``
+    separately — the common case for an agent loading its context before a turn.
+    """
+    return LearningsByScope(
+        personal=manager.list_learnings(
+            Scope.personal, entity_id=entity_id, limit=limit, offset=offset
+        ),
+        global_=manager.list_learnings(Scope.global_, limit=limit, offset=offset),
+    )
 
 
 @router.get(
