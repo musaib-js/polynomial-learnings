@@ -29,6 +29,16 @@ class CurationError(LearningsError):
     e.g. a verdict referencing a learning outside the isolation boundary."""
 
 
+class SchemaDimensionError(LearningsError):
+    """The embedder's vector dimension disagrees with the existing table.
+
+    ``schema.sql`` fixes the width of ``learnings.embedding`` when the table is
+    first created, and every statement in it is ``IF NOT EXISTS`` — so pointing
+    a different-dimension model at a populated database would otherwise be a
+    silent no-op that only surfaces on the first read or write.
+    """
+
+
 class LearningsAPIError(LearningsError):
     """Raised by ``LearningClient`` when an HTTP call to the API fails —
     either transport-level (unreachable, timeout) or a non-2xx response.

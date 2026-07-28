@@ -8,14 +8,15 @@ learning belonging to another entity is never a candidate.
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 import psycopg
 from pgvector.psycopg import register_vector
 from psycopg_pool import ConnectionPool
 
 from .backend import SearchFilter
+from .exceptions import SchemaDimensionError
 from .models import Learning, Outcome, Scope, Status, TokenUsageRecord
 
 # Shipped inside the package (see ``tool.setuptools.package-data``) so
@@ -30,14 +31,45 @@ _COLUMNS = (
 )
 
 
+def _embedding_dimension(conn: psycopg.Connection) -> int:
+    """Read the width the ``learnings.embedding`` column was created with.
+
+    ``format_type`` renders the column type as text (``vector(384)``), which
+    avoids depending on how pgvector encodes the raw ``atttypmod`` value.
+    """
+    row = conn.execute(
+        """
+        SELECT format_type(atttypid, atttypmod)
+        FROM pg_attribute
+        WHERE attrelid = 'learnings'::regclass
+          AND attname = 'embedding'
+          AND NOT attisdropped
+        """
+    ).fetchone()
+    rendered_type = row[0]  # e.g. "vector(384)"
+    return int(rendered_type[rendered_type.index("(") + 1 : rendered_type.index(")")])
+
+
 def init_schema(dsn: str, dim: int) -> None:
     """Create the extension, table, and indexes if they do not exist.
 
-    ``dim`` must match the embedder's vector dimension.
+    ``dim`` must match the embedder's vector dimension. Every statement in
+    ``schema.sql`` is ``IF NOT EXISTS``, so against a database that already has
+    the table this is a no-op — including when ``dim`` differs from the width
+    the table was built with. That case raises rather than being ignored.
     """
     sql = _SCHEMA_PATH.read_text().replace("{dim}", str(int(dim)))
     with psycopg.connect(dsn) as conn:
         conn.execute(sql)
+        # The CREATE above guarantees the table exists by this point, so the
+        # column is always there to read back.
+        existing_dim = _embedding_dimension(conn)
+        if existing_dim != dim:
+            raise SchemaDimensionError(
+                f"embedder produces {dim}-dimensional vectors but the existing "
+                f"'learnings' table stores vector({existing_dim}). Point at a "
+                f"fresh database, or migrate the table and re-embed every row."
+            )
         conn.commit()
 
 
