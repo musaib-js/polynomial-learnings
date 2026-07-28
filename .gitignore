@@ -22,3 +22,6 @@ venv/
 /docker-compose.yml
 /scripts
 /test_score.py
+
+# Generated architecture docs — local reference only, not shipped
+/docs
