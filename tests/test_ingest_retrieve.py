@@ -20,8 +20,8 @@ import pytest
 from learnings import (
     HuggingFaceEmbedder,
     LearningManager,
-    PgVectorBackend,
     Outcome,
+    PgVectorBackend,
     Scope,
     init_schema,
     reciprocal_rank_fusion,

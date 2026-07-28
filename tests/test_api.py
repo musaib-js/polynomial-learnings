@@ -127,6 +127,38 @@ def test_get_personal_and_global(client, seed, agent_id):
     assert bob == []
 
 
+def test_get_all_learnings_in_one_call(client, seed, agent_id):
+    seed.record(
+        context="alice prefers metric tons",
+        content="report weight in metric tons",
+        entity_id="alice",
+    )
+    seed.record(
+        context="any user asks about fiscal year",
+        content="fiscal year starts in April",
+        scope=Scope.global_,
+    )
+
+    body = client.get(
+        f"/v1/agents/{agent_id}/learnings", params={"entity_id": "alice"}
+    ).json()
+    assert len(body["personal"]) == 1
+    assert body["personal"][0]["scope"] == "personal"
+    assert len(body["global"]) == 1
+    assert body["global"][0]["scope"] == "global"
+
+    # Isolation: another entity sees no personal rows but still sees globals.
+    bob = client.get(
+        f"/v1/agents/{agent_id}/learnings", params={"entity_id": "bob"}
+    ).json()
+    assert bob["personal"] == []
+    assert len(bob["global"]) == 1
+
+
+def test_get_all_learnings_requires_entity_id(client, agent_id):
+    assert client.get(f"/v1/agents/{agent_id}/learnings").status_code == 422
+
+
 def test_approve_disapprove_and_soft_delete(client, seed, agent_id):
     learning = seed.record(
         context="user asks about churn",

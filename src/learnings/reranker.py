@@ -16,7 +16,8 @@ a reranker is explicitly configured.
 from __future__ import annotations
 
 import math
-from typing import Callable, Protocol, Sequence, runtime_checkable
+from collections.abc import Callable, Sequence
+from typing import Protocol, runtime_checkable
 
 from .models import Learning
 

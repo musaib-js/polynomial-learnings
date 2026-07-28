@@ -24,7 +24,7 @@ extras via ``httpx``).
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 import httpx
 
@@ -89,7 +89,7 @@ class LearningClient:
         if self._owns_client:
             self._client.close()
 
-    def __enter__(self) -> "LearningClient":
+    def __enter__(self) -> LearningClient:
         return self
 
     def __exit__(self, *exc) -> None:
