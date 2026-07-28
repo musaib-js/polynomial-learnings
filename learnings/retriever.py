@@ -18,15 +18,16 @@ out candidates are never touched.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import logging
-
-logger = logging.getLogger(__name__)
+from datetime import datetime, timezone
+from typing import Callable
 
 from .backend import SearchFilter, VectorStoreBackend
 from .embedder import Embedder
 from .models import Learning
 from .reranker import Reranker
+
+logger = logging.getLogger(__name__)
 
 
 def reciprocal_rank_fusion(
@@ -71,9 +72,16 @@ class HybridRetriever:
         rrf_k: int = 60,
         reranker: Reranker | None = None,
         rerank_threshold: float = 0.52,
+        event_recorder: Callable[[Learning], None] | None = None,
     ):
         self._backend = backend
         self._embedder = embedder
+        # Optional analytics side-channel: called once per actually-returned
+        # (touched) learning, purely additive — never affects ranking or the
+        # returned list. None (the default) preserves exact prior behavior;
+        # wired to a real recorder only in learnings/api/deps.py, which has
+        # access to the SaaS `learning_events` table.
+        self._event_recorder = event_recorder
         self._semantic_weight = semantic_weight
         self._keyword_weight = keyword_weight
         self._rrf_k = rrf_k
@@ -115,7 +123,7 @@ class HybridRetriever:
         keyword = self._backend.keyword_search(query, flt, candidate_k)
 
         fused = reciprocal_rank_fusion(
-            [[l for l, _ in semantic], [l for l, _ in keyword]],
+            [[x for x, _ in semantic], [x for x, _ in keyword]],
             weights=[self._semantic_weight, self._keyword_weight],
             k=self._rrf_k,
         )
@@ -183,3 +191,5 @@ class HybridRetriever:
             learning.hits += 1
             learning.last_used_at = now
             self._backend.update(learning.id, hits=learning.hits, last_used_at=now)
+            if self._event_recorder is not None:
+                self._event_recorder(learning)

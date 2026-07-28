@@ -107,7 +107,9 @@ def _curator(backend, judge, retriever):
 def _new_verdict():
     return JudgeVerdict(
         verdict=Verdict.new,
-        learning=GeneratedLearning(context="ctx", content="lesson", scope=Scope.personal),
+        learning=GeneratedLearning(
+            context="ctx", content="lesson", scope=Scope.personal
+        ),
     )
 
 
@@ -117,10 +119,15 @@ def _new_verdict():
 def test_new_agent_skips_neighbour_search():
     backend = FakeBackend()
     retriever = FakeRetriever(result=[Learning(agent_id="a", context="x", content="y")])
-    judge = UsageJudge(_new_verdict(), TokenUsage(model="m", prompt_tokens=10, completion_tokens=5, total_tokens=15))
+    judge = UsageJudge(
+        _new_verdict(),
+        TokenUsage(model="m", prompt_tokens=10, completion_tokens=5, total_tokens=15),
+    )
     curator = _curator(backend, judge, retriever)
 
-    result = curator.persist("agent-1", [Message(role="user", content="hi")], entity_id="alice")
+    result = curator.persist(
+        "agent-1", [Message(role="user", content="hi")], entity_id="alice"
+    )
 
     assert result.decision == "persisted"
     assert retriever.calls == 0  # neighbour search skipped entirely
@@ -158,7 +165,10 @@ def test_no_user_messages_short_circuits_before_flag_check():
 def test_judge_tokens_are_recorded_on_persist():
     backend = FakeBackend()
     judge = UsageJudge(
-        _new_verdict(), TokenUsage(model="gpt-x", prompt_tokens=100, completion_tokens=40, total_tokens=140)
+        _new_verdict(),
+        TokenUsage(
+            model="gpt-x", prompt_tokens=100, completion_tokens=40, total_tokens=140
+        ),
     )
     curator = _curator(backend, judge, FakeRetriever())
 
@@ -168,7 +178,11 @@ def test_judge_tokens_are_recorded_on_persist():
     rec = backend.token_records[0]
     assert rec.operation == "judge"
     assert rec.model == "gpt-x"
-    assert (rec.prompt_tokens, rec.completion_tokens, rec.total_tokens) == (100, 40, 140)
+    assert (rec.prompt_tokens, rec.completion_tokens, rec.total_tokens) == (
+        100,
+        40,
+        140,
+    )
     assert rec.entity_id == "alice"
 
 
@@ -180,7 +194,9 @@ def test_tokens_recorded_even_when_rejected():
     )
     curator = _curator(backend, judge, FakeRetriever())
 
-    result = curator.persist("agent-1", [Message(role="user", content="hi")], entity_id="alice")
+    result = curator.persist(
+        "agent-1", [Message(role="user", content="hi")], entity_id="alice"
+    )
 
     assert result.decision == "rejected"
     assert len(backend.token_records) == 1  # the judge call still cost tokens
@@ -192,7 +208,9 @@ def test_judge_without_usage_support_records_nothing():
     judge = FakeJudge(_new_verdict())  # no evaluate_with_usage
     curator = _curator(backend, judge, FakeRetriever())
 
-    result = curator.persist("agent-1", [Message(role="user", content="hi")], entity_id="alice")
+    result = curator.persist(
+        "agent-1", [Message(role="user", content="hi")], entity_id="alice"
+    )
 
     assert result.decision == "persisted"
     assert backend.token_records == []  # no usage reported, none recorded
@@ -203,7 +221,9 @@ def test_judge_without_usage_support_records_nothing():
 
 def test_manager_record_sets_flag():
     backend = FakeBackend()
-    manager = LearningManager(agent_id="agent-1", backend=backend, embedder=FakeEmbedder())
+    manager = LearningManager(
+        agent_id="agent-1", backend=backend, embedder=FakeEmbedder()
+    )
 
     manager.record(context="ctx", content="content", entity_id="alice")
 
@@ -212,8 +232,13 @@ def test_manager_record_sets_flag():
 
 def test_manager_token_stats_assembles_model():
     backend = FakeBackend()
-    manager = LearningManager(agent_id="agent-1", backend=backend, embedder=FakeEmbedder())
-    judge = UsageJudge(_new_verdict(), TokenUsage(model="m", prompt_tokens=10, completion_tokens=5, total_tokens=15))
+    manager = LearningManager(
+        agent_id="agent-1", backend=backend, embedder=FakeEmbedder()
+    )
+    judge = UsageJudge(
+        _new_verdict(),
+        TokenUsage(model="m", prompt_tokens=10, completion_tokens=5, total_tokens=15),
+    )
     # Persist once through a curator sharing the same backend to generate a record.
     LearningCurator(backend, FakeEmbedder(), judge, FakeRetriever()).persist(
         "agent-1", [Message(role="user", content="hi")], entity_id="alice"

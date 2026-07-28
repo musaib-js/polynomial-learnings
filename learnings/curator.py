@@ -58,6 +58,7 @@ class LearningCurator:
         retriever: HybridRetriever,
         top_k: int = 5,
         max_messages: int = 4,
+        require_approval: bool = False,
     ):
         self._backend = backend
         self._embedder = embedder
@@ -65,6 +66,12 @@ class LearningCurator:
         self._retriever = retriever
         self._top_k = top_k
         self._max_messages = max_messages
+        # Opt-in pre-publish gate (default False everywhere — see
+        # models.Status.pending_approval docstring). When True, judge-written
+        # new/refine/contradict learnings land as `pending_approval` instead
+        # of `active`, and only the existing approve_learning/
+        # disapprove_learning (LearningManager) transitions them further.
+        self._require_approval = require_approval
 
     def persist(
         self,
@@ -103,7 +110,9 @@ class LearningCurator:
                 limit=self._top_k,
             )
         else:
-            logger.debug("agent %s has no learnings yet; skipping neighbour search", agent_id)
+            logger.debug(
+                "agent %s has no learnings yet; skipping neighbour search", agent_id
+            )
             neighbours = []
         by_id = {learning.id: learning for learning in neighbours}
 
@@ -155,7 +164,9 @@ class LearningCurator:
                 )
             )
         except Exception:  # pragma: no cover - defensive
-            logger.warning("failed to record token usage for agent %s", agent_id, exc_info=True)
+            logger.warning(
+                "failed to record token usage for agent %s", agent_id, exc_info=True
+            )
 
     # -- dispatch -----------------------------------------------------------
 
@@ -236,6 +247,9 @@ class LearningCurator:
 
     # -- writes -----------------------------------------------------------
 
+    def _initial_status(self) -> Status:
+        return Status.pending_approval if self._require_approval else Status.active
+
     def _embed_and_upsert(self, learning: Learning) -> None:
         embedding = self._embedder.embed([learning.embedding_text()])[0]
         self._backend.upsert(learning, embedding)
@@ -255,6 +269,7 @@ class LearningCurator:
             agent_id=agent_id,
             entity_id=entity_id,
             scope=generated.scope,
+            status=self._initial_status(),
             context=generated.context,
             content=generated.content,
             outcome=generated.outcome,
@@ -285,6 +300,7 @@ class LearningCurator:
             update={
                 "scope": generated.scope,
                 "entity_id": entity_id,
+                "status": self._initial_status(),
                 "context": generated.context,
                 "content": generated.content,
                 "outcome": generated.outcome,
@@ -313,6 +329,7 @@ class LearningCurator:
             agent_id=agent_id,
             entity_id=entity_id,
             scope=generated.scope,
+            status=self._initial_status(),
             supersedes=existing.id,
             context=generated.context,
             content=generated.content,

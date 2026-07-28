@@ -3,7 +3,7 @@
 
 export type Scope = "personal" | "global";
 export type Outcome = "positive" | "negative" | "neutral";
-export type Status = "active" | "superseded" | "rejected";
+export type Status = "active" | "superseded" | "rejected" | "pending_approval";
 export type Verdict = "new" | "same" | "refine" | "contradict" | "reject";
 export type Decision = "persisted" | "rejected";
 
@@ -94,4 +94,88 @@ export interface LearningPatch {
   tags?: string[];
   reason?: string | null;
   outcome?: Outcome;
+}
+
+// -- SaaS auth / tenancy (learnings/auth/, /v1/auth/*, /v1/dashboard/*) -----
+
+export type UserRole = "member" | "admin";
+
+export interface User {
+  id: string;
+  email: string;
+  name: string | null;
+  role: UserRole;
+  email_verified: boolean;
+  created_at: string;
+  last_login_at: string | null;
+}
+
+export interface TokenPair {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+}
+
+export interface AgentRecord {
+  agent_id: string;
+  display_name: string;
+  require_approval: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApiKeyCreated {
+  id: string;
+  name: string;
+  key_prefix: string;
+  raw_key: string;
+  created_at: string;
+}
+
+export interface ApiKeySummary {
+  id: string;
+  name: string;
+  key_prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+  revoked_at: string | null;
+}
+
+// -- analytics (learnings/analytics.py, /v1/dashboard/agents/{id}/analytics/*) --
+
+export interface LearningsGrowthPoint {
+  bucket: string;
+  created: number;
+}
+
+export interface LearningsGrowth {
+  total: number;
+  personal: number;
+  global: number;
+  approved: number;
+  pending: number;
+  rejected: number;
+  series: LearningsGrowthPoint[];
+}
+
+export interface UsageTrendPoint {
+  bucket: string;
+  retrievals: number;
+}
+
+export interface MostUsedEvent {
+  learning_id: string;
+  retrievals: number;
+}
+
+export interface RecentlyRetrieved {
+  learning_id: string;
+  occurred_at: string;
+}
+
+export interface UsageTrends {
+  series: UsageTrendPoint[];
+  most_used: MostUsedEvent[];
+  recently_retrieved: RecentlyRetrieved[];
 }

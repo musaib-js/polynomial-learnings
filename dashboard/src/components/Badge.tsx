@@ -42,6 +42,7 @@ const STATUS_HUE: Record<Status, Hue> = {
   active: "ok",
   superseded: "warn",
   rejected: "danger",
+  pending_approval: "info",
 };
 
 const OUTCOME_HUE: Record<Outcome, Hue> = {

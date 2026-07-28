@@ -6,8 +6,10 @@ embedder and psycopg calls are blocking, and this keeps them off the event loop.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from ..auth.deps import require_admin, require_agent_ownership
+from ..auth.models import AuthPrincipal, User
 from ..backend import VectorStoreBackend
 from ..manager import LearningManager
 from ..models import (
@@ -27,11 +29,16 @@ router = APIRouter(prefix="/v1")
 @router.get(
     "/agents",
     response_model=list[AgentSummary],
-    summary="List every agent the store has seen",
+    summary="List every agent the store has seen (platform staff only)",
 )
 def list_agents(
     backend: VectorStoreBackend = Depends(get_backend),
+    _admin: User = Depends(require_admin),
 ) -> list[AgentSummary]:
+    # Cross-tenant roster: admin-gated, since this returns every agent_id
+    # ever seen across every organization with no per-tenant scoping.
+    # Ordinary customers should use GET /v1/dashboard/agents instead
+    # (dashboard_routes.py::list_my_agents), which is scoped to their org.
     return [AgentSummary(**row) for row in backend.list_agents()]
 
 
@@ -40,6 +47,34 @@ def _require(learning: Learning | None) -> Learning:
     if learning is None:
         raise HTTPException(status_code=404, detail="learning not found")
     return learning
+
+
+def _audit(
+    request: Request, principal: AuthPrincipal, action: str, target_id: str
+) -> None:
+    """Best-effort audit trail for learning-management actions.
+
+    Same non-fatal principle as curator.py's token-usage recording:
+    observability must never sink an otherwise-successful request. Answers
+    AGENT.md's previously-open "no rejection audit trail" question for the
+    human-review actions (approve/disapprove/edit/delete).
+    """
+    auth_store = getattr(request.app.state, "auth_store", None)
+    if auth_store is None:
+        return
+    try:
+        auth_store.record_audit_event(
+            actor_user_id=principal.user_id if principal else None,
+            org_id=principal.org_id if principal else None,
+            action=action,
+            target_id=target_id,
+        )
+    except Exception:
+        import logging
+
+        logging.getLogger("learnings.audit").warning(
+            "failed to record audit event %s for %s", action, target_id, exc_info=True
+        )
 
 
 @router.post(
@@ -51,6 +86,7 @@ def retrieve(
     agent_id: str,
     req: RetrieveRequest,
     manager: LearningManager = Depends(get_manager),
+    _principal: AuthPrincipal = Depends(require_agent_ownership),
 ) -> list[Learning]:
     return manager.retrieve_for_conversation(
         messages=req.messages, entity_id=req.entity_id, limit=req.limit
@@ -66,6 +102,7 @@ def persist(
     agent_id: str,
     req: PersistRequest,
     manager: LearningManager = Depends(get_manager),
+    _principal: AuthPrincipal = Depends(require_agent_ownership),
 ) -> PersistResult:
     try:
         return manager.persist_from_conversation(
@@ -89,6 +126,7 @@ def list_personal(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     manager: LearningManager = Depends(get_manager),
+    _principal: AuthPrincipal = Depends(require_agent_ownership),
 ) -> list[Learning]:
     return manager.list_learnings(
         Scope.personal, entity_id=entity_id, limit=limit, offset=offset
@@ -105,6 +143,7 @@ def list_global(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     manager: LearningManager = Depends(get_manager),
+    _principal: AuthPrincipal = Depends(require_agent_ownership),
 ) -> list[Learning]:
     return manager.list_learnings(Scope.global_, limit=limit, offset=offset)
 
@@ -118,9 +157,13 @@ def list_global(
 def approve(
     agent_id: str,
     learning_id: str,
+    request: Request,
     manager: LearningManager = Depends(get_manager),
+    principal: AuthPrincipal = Depends(require_agent_ownership),
 ) -> Learning:
-    return _require(manager.approve_learning(learning_id))
+    result = _require(manager.approve_learning(learning_id))
+    _audit(request, principal, "learning.approve", learning_id)
+    return result
 
 
 @router.post(
@@ -131,9 +174,13 @@ def approve(
 def disapprove(
     agent_id: str,
     learning_id: str,
+    request: Request,
     manager: LearningManager = Depends(get_manager),
+    principal: AuthPrincipal = Depends(require_agent_ownership),
 ) -> Learning:
-    return _require(manager.disapprove_learning(learning_id))
+    result = _require(manager.disapprove_learning(learning_id))
+    _audit(request, principal, "learning.disapprove", learning_id)
+    return result
 
 
 @router.patch(
@@ -145,10 +192,14 @@ def update_learning(
     agent_id: str,
     learning_id: str,
     req: UpdateLearningRequest,
+    request: Request,
     manager: LearningManager = Depends(get_manager),
+    principal: AuthPrincipal = Depends(require_agent_ownership),
 ) -> Learning:
     fields = req.model_dump(exclude_unset=True)
-    return _require(manager.update_learning(learning_id, **fields))
+    result = _require(manager.update_learning(learning_id, **fields))
+    _audit(request, principal, "learning.edit", learning_id)
+    return result
 
 
 @router.delete(
@@ -159,9 +210,13 @@ def update_learning(
 def delete_learning(
     agent_id: str,
     learning_id: str,
+    request: Request,
     manager: LearningManager = Depends(get_manager),
+    principal: AuthPrincipal = Depends(require_agent_ownership),
 ) -> Learning:
-    return _require(manager.delete_learning(learning_id))
+    result = _require(manager.delete_learning(learning_id))
+    _audit(request, principal, "learning.delete", learning_id)
+    return result
 
 
 # -- statistics -----------------------------------------------------------
@@ -174,6 +229,7 @@ def stats(
     agent_id: str,
     top_n: int = Query(5, ge=0, le=50),
     manager: LearningManager = Depends(get_manager),
+    _principal: AuthPrincipal = Depends(require_agent_ownership),
 ) -> AgentStats:
     return manager.stats(top_n=top_n)
 
@@ -187,5 +243,6 @@ def stats(
 def token_usage(
     agent_id: str,
     manager: LearningManager = Depends(get_manager),
+    _principal: AuthPrincipal = Depends(require_agent_ownership),
 ) -> TokenUsageStats:
     return manager.token_stats()

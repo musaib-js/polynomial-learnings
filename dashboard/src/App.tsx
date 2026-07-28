@@ -1,18 +1,61 @@
 import { useState } from "react";
 import { Sidebar, type Route } from "./components/Sidebar";
 import { HealthIndicator } from "./components/HealthIndicator";
-import { Toaster } from "./components/ui";
+import { Spinner, Toaster } from "./components/ui";
 import { IconMenu, IconMoon, IconSun } from "./components/icons";
 import { useApp } from "./context/AppContext";
+import { useAuth } from "./context/AuthContext";
+import { Auth } from "./screens/Auth";
+import { ForgotPassword } from "./screens/ForgotPassword";
+import { ResetPassword } from "./screens/ResetPassword";
+import { Landing } from "./screens/Landing";
 import { Overview } from "./screens/Overview";
 import { Learnings } from "./screens/Learnings";
+import { Analytics } from "./screens/Analytics";
+import { ApiKeys } from "./screens/ApiKeys";
 import { Sandbox } from "./screens/Sandbox";
 import { Activity } from "./screens/Activity";
 import { Settings } from "./screens/Settings";
 
+type UnauthView = "login" | "forgot" | "reset";
+
+function initialUnauthView(): { view: UnauthView; resetToken?: string } {
+  const token = new URLSearchParams(window.location.search).get("reset_token");
+  return token ? { view: "reset", resetToken: token } : { view: "login" };
+}
+
 export function App() {
+  const { status } = useAuth();
+  const [unauth] = useState(initialUnauthView);
+  const [unauthView, setUnauthView] = useState<UnauthView>(unauth.view);
+
+  if (status === "checking") {
+    return (
+      <div className="h-full w-full flex items-center justify-center">
+        <Spinner size={20} />
+      </div>
+    );
+  }
+
+  if (status === "anon") {
+    if (unauthView === "forgot") {
+      return <ForgotPassword onBack={() => setUnauthView("login")} />;
+    }
+    if (unauthView === "reset") {
+      return (
+        <ResetPassword initialToken={unauth.resetToken} onBack={() => setUnauthView("login")} />
+      );
+    }
+    return <Auth onForgotPassword={() => setUnauthView("forgot")} />;
+  }
+
+  return <Dashboard />;
+}
+
+function Dashboard() {
   const { settings, theme, toggleTheme } = useApp();
-  const [route, setRoute] = useState<Route>("overview");
+  const { user, logout } = useAuth();
+  const [route, setRoute] = useState<Route>("home");
   const [navOpen, setNavOpen] = useState(false);
 
   return (
@@ -76,13 +119,25 @@ export function App() {
             >
               {theme === "dark" ? <IconSun size={16} /> : <IconMoon size={16} />}
             </button>
+            {user && (
+              <button
+                className="btn btn-sm hidden sm:inline-flex"
+                onClick={logout}
+                title={user.email}
+              >
+                Log out
+              </button>
+            )}
           </div>
         </header>
 
         <main className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-[1240px] px-4 sm:px-6 py-6">
+            {route === "home" && <Landing onNavigate={setRoute} />}
             {route === "overview" && <Overview onNavigate={setRoute} />}
             {route === "learnings" && <Learnings />}
+            {route === "analytics" && <Analytics />}
+            {route === "apikeys" && <ApiKeys />}
             {route === "sandbox" && <Sandbox />}
             {route === "activity" && <Activity />}
             {route === "settings" && <Settings />}

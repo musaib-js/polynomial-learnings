@@ -20,11 +20,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from ..auth.store import AuthStore
 from ..embedder import HuggingFaceEmbedder
 from ..judge import GroqJudge
 from ..pgvector_backend import PgVectorBackend, init_schema
+from ..settings import settings
+from .auth_routes import router as auth_router
+from .dashboard_routes import router as dashboard_router
 from .routes import router
 
+# Only needed for the plain os.environ reads below (DATABASE_URL,
+# GROQ_API_KEY) — learnings/settings.py reads .env itself via pydantic-
+# settings' env_file, so Settings() is correct regardless of import order or
+# whether load_dotenv() has run yet.
 load_dotenv()
 
 # Repo root / "dashboard/dist" — the built operator console, served at /app when
@@ -45,10 +53,15 @@ async def lifespan(app: FastAPI):
     # routes never touch app.state.judge; only /persist needs it, and
     # returns 503 (not a crash) when it's None. See deps.get_manager.
     app.state.judge = GroqJudge() if os.environ.get("GROQ_API_KEY") else None
+    # Tenancy/identity store (users, orgs, api keys, agent ownership) — a
+    # separate pool from the vector-store backend since this data has no
+    # vectors and can scale/fail independently. See learnings/auth/store.py.
+    app.state.auth_store = AuthStore(dsn)
     try:
         yield
     finally:
         backend.close()
+        app.state.auth_store.close()
 
 
 def create_app() -> FastAPI:
@@ -58,16 +71,18 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Demo-friendly CORS: the static UI may be opened from file:// or a
-    # different port. Wide-open is fine here because there is no auth and no
-    # cookies; tighten allow_origins for any real deployment.
+    # CORS_ORIGINS is an explicit allowlist (see learnings/settings.py) — no
+    # wildcard default. Auth uses Authorization: Bearer (not cookies), so
+    # allow_credentials=True is not needed here.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=settings.cors_origin_list,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
+    app.include_router(auth_router)
+    app.include_router(dashboard_router)
     app.include_router(router)
 
     @app.get("/health", summary="Liveness/readiness probe")

@@ -49,6 +49,7 @@ class LearningManager:
         retriever: HybridRetriever | None = None,
         judge: Judge | None = None,
         curator: LearningCurator | None = None,
+        require_approval: bool = False,
     ):
         self._agent_id = agent_id
         self._backend = backend
@@ -59,8 +60,17 @@ class LearningManager:
         # (or accept a caller-supplied one) when a judge is actually
         # available, so retrieval-only managers (e.g. the existing /retrieve
         # API route) keep working with zero curation overhead.
+        # require_approval defaults False (existing behavior everywhere);
+        # the SaaS API layer (learnings/api/deps.py) looks up a per-agent
+        # opt-in flag and passes it through here.
         self._curator = curator or (
-            LearningCurator(backend, embedder, judge, self._retriever)
+            LearningCurator(
+                backend,
+                embedder,
+                judge,
+                self._retriever,
+                require_approval=require_approval,
+            )
             if judge
             else None
         )
