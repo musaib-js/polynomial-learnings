@@ -23,7 +23,8 @@ venv/
 
 # Not part of the distributable package. The dashboard is tracked again —
 # it is the only interface for minting and revoking API keys.
-/scripts
+/scripts/*
+!/scripts/smoke.sh
 /test_score.py
 
 # Generated architecture docs — local reference only, not shipped
