@@ -105,7 +105,7 @@ class Learning(BaseModel):
 class Message(BaseModel):
     """One turn of a conversation snapshot handed to the retrieval API."""
 
-    role: str
+    role: Literal["user", "assistant", "system"]
     content: str
 
 

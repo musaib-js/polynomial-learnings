@@ -52,8 +52,8 @@ def build_client(key_record: ApiKeyRecord | None) -> tuple[TestClient, MagicMock
     store = MagicMock()
     store.get_api_key_by_hash.return_value = key_record
     # ORG_A owns AGENT_A and nothing else.
-    store.agent_belongs_to_org.side_effect = (
-        lambda agent_id, org_id: agent_id == AGENT_A and org_id == ORG_A
+    store.agent_belongs_to_org.side_effect = lambda agent_id, org_id: (
+        agent_id == AGENT_A and org_id == ORG_A
     )
     store.get_agent.return_value = None
     app.state.auth_store = store
@@ -65,7 +65,9 @@ def build_client(key_record: ApiKeyRecord | None) -> tuple[TestClient, MagicMock
 
 def retrieve(client: TestClient, agent_id: str, key: str | None = RAW_KEY):
     headers = {"Authorization": f"Bearer {key}"} if key else {}
-    return client.post(f"/v1/agents/{agent_id}/retrieve", json=MESSAGES, headers=headers)
+    return client.post(
+        f"/v1/agents/{agent_id}/retrieve", json=MESSAGES, headers=headers
+    )
 
 
 # -- the key itself ----------------------------------------------------------

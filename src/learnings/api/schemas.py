@@ -54,10 +54,13 @@ class LearningsByScope(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     personal: list[Learning] = Field(
-        default_factory=list, description="Active personal learnings for the given entity."
+        default_factory=list,
+        description="Active personal learnings for the given entity.",
     )
     global_: list[Learning] = Field(
-        default_factory=list, alias="global", description="Active global learnings for this agent."
+        default_factory=list,
+        alias="global",
+        description="Active global learnings for this agent.",
     )
 
 

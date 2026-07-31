@@ -53,6 +53,7 @@ def __getattr__(name: str):
         return getattr(pgvector_backend, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
+
 # Library convention: never configure handlers here — that's the
 # application's job. A NullHandler silences "no handlers found" warnings
 # for callers who haven't configured logging at all.
