@@ -3,6 +3,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { IconCopy, IconCheck, IconRefresh, IconX } from "./icons";
 import { shortId } from "../lib/format";
 import { useApp, type Toast } from "../context/AppContext";
@@ -198,7 +199,16 @@ export function Modal({
     };
   }, [onClose]);
 
-  return (
+  // Portaled straight to <body>: any ancestor with a CSS transform/filter
+  // animation (e.g. this app's own `.animate-in`, used on nearly every
+  // screen's root div) creates a new containing block for `position: fixed`
+  // descendants — even after the animation finishes, since `animation-fill-
+  // mode: both` keeps it "attached". Left in place, that silently shrinks
+  // this overlay down to that ancestor's content box instead of the
+  // viewport (it was observed tracking a table's height). Rendering into
+  // `document.body` sidesteps the issue entirely, regardless of where the
+  // modal is invoked from.
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-start justify-center p-4 sm:p-8 overflow-y-auto"
       style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(2px)" }}
@@ -238,7 +248,8 @@ export function Modal({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

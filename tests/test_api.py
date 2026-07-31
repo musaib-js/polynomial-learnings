@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 
 from learnings import HuggingFaceEmbedder, LearningManager, PgVectorBackend, Scope
 from learnings.api.app import create_app
+from learnings.auth.deps import require_agent_ownership
 
 DSN = os.environ.get("DATABASE_URL")
 pytestmark = pytest.mark.skipif(not DSN, reason="DATABASE_URL not set")
@@ -51,6 +52,11 @@ def client():
     app = create_app()
     app.state.embedder = EMBEDDER
     app.state.backend = PgVectorBackend(DSN)
+    # These suites test the engine (retrieval/curation/management), not the
+    # SaaS auth layer — bypass the ownership check the same way the plan's
+    # test-fixture guidance recommends (dependency_overrides, not a global
+    # auth-disable flag that could accidentally ship enabled).
+    app.dependency_overrides[require_agent_ownership] = lambda: None
     yield TestClient(app)
     app.state.backend.close()
 
@@ -125,6 +131,38 @@ def test_get_personal_and_global(client, seed, agent_id):
         f"/v1/agents/{agent_id}/learnings/personal", params={"entity_id": "bob"}
     ).json()
     assert bob == []
+
+
+def test_get_all_learnings_in_one_call(client, seed, agent_id):
+    seed.record(
+        context="alice prefers metric tons",
+        content="report weight in metric tons",
+        entity_id="alice",
+    )
+    seed.record(
+        context="any user asks about fiscal year",
+        content="fiscal year starts in April",
+        scope=Scope.global_,
+    )
+
+    body = client.get(
+        f"/v1/agents/{agent_id}/learnings", params={"entity_id": "alice"}
+    ).json()
+    assert len(body["personal"]) == 1
+    assert body["personal"][0]["scope"] == "personal"
+    assert len(body["global"]) == 1
+    assert body["global"][0]["scope"] == "global"
+
+    # Isolation: another entity sees no personal rows but still sees globals.
+    bob = client.get(
+        f"/v1/agents/{agent_id}/learnings", params={"entity_id": "bob"}
+    ).json()
+    assert bob["personal"] == []
+    assert len(bob["global"]) == 1
+
+
+def test_get_all_learnings_requires_entity_id(client, agent_id):
+    assert client.get(f"/v1/agents/{agent_id}/learnings").status_code == 422
 
 
 def test_approve_disapprove_and_soft_delete(client, seed, agent_id):

@@ -1,0 +1,328 @@
+"""Data model for a single learning.
+
+Only ``context`` + ``content`` are embedded; every other field travels as
+metadata on the same record, used for isolation, filtering, and ranking.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Literal
+from uuid import uuid4
+
+from pydantic import BaseModel, Field, model_validator
+
+
+class Scope(str, Enum):
+    personal = "personal"
+    global_ = "global"
+
+
+class Outcome(str, Enum):
+    positive = "positive"
+    negative = "negative"
+    neutral = "neutral"
+
+
+class Status(str, Enum):
+    active = "active"
+    superseded = "superseded"
+    rejected = "rejected"
+    # Opt-in only (see LearningCurator's `require_approval` flag, gated by
+    # the SaaS `agents.require_approval` column): a judge-generated learning
+    # awaiting human approve/disapprove before it becomes retrievable. Every
+    # agent defaults to NOT requiring approval, so this status never appears
+    # unless a customer explicitly opts in — existing behavior (judge writes
+    # land as `active` immediately) is unchanged everywhere else.
+    pending_approval = "pending_approval"
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class Learning(BaseModel):
+    """The unit of knowledge stored and retrieved by the library."""
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+
+    # Isolation boundary.
+    agent_id: str
+    entity_id: str | None = None  # None for global learnings
+    scope: Scope = Scope.personal
+
+    # Lifecycle.
+    status: Status = Status.active
+    supersedes: str | None = None
+
+    # Embedded semantic content.
+    context: str
+    content: str
+
+    # Payload detail (for the model's own understanding).
+    outcome: Outcome = Outcome.neutral
+    reason: str | None = None
+    original_output: str | None = None
+    corrected_output: str | None = None
+    category: str | None = None
+    tags: list[str] = Field(default_factory=list)
+
+    # Ranking / curation signals.
+    created_at: datetime = Field(default_factory=_now)
+    last_used_at: datetime | None = None
+    hits: int = 0
+
+    def embedding_text(self) -> str:
+        """The text that gets embedded and full-text indexed.
+
+        Deliberately unchanged by the rerank work: stored vectors were
+        computed from exactly this text, so changing it silently invalidates
+        every existing embedding (and `update_learning` only re-embeds on
+        context/content edits). Rerank-time enrichment lives in
+        ``rerank_text()`` instead, which is computed fresh per query.
+        """
+        return f"{self.context} {self.content}"
+
+    def rerank_text(self) -> str:
+        """The document a cross-encoder reranker scores against the query.
+
+        Structured, and enriched with ``category``/``tags`` when present —
+        measured on ms-marco-MiniLM-L-6-v2, topic metadata is what lets a
+        query like "currency formatting" match a lesson whose body never
+        uses either word (raw logit -7.5 without metadata → +2.9 with).
+        Computed from the row at query time, so it applies to all stored
+        learnings immediately with no re-embedding or migration.
+        """
+        parts = [f"Situation: {self.context}", f"Lesson: {self.content}"]
+        if self.category:
+            parts.append(f"Category: {self.category}")
+        if self.tags:
+            parts.append(f"Tags: {', '.join(self.tags)}")
+        return "\n".join(parts)
+
+
+class Message(BaseModel):
+    """One turn of a conversation snapshot handed to the retrieval API."""
+
+    role: Literal["user", "assistant", "system"]
+    content: str
+
+
+def query_from_messages(messages: list[Message]) -> str:
+    """Flatten a conversation snapshot into a single search query.
+
+    The base version uses every provided message (no cap yet — message
+    limiting is deferred). Empty contents are dropped.
+    """
+    return " ".join(m.content for m in messages if m.content)
+
+
+def format_learnings_for_prompt(learnings: list[Learning]) -> str:
+    """Render learnings as a concise, applicable block for a system prompt.
+
+    Returns an empty string when there is nothing to show, so callers can
+    concatenate the result unconditionally. Lives here so the in-process
+    manager and the API-backed adapter share one definition of the format —
+    an agent must see identical text regardless of which one produced it.
+    """
+    if not learnings:
+        return ""
+    lines = ["Relevant learnings from past interactions:"]
+    for learning in learnings:
+        lines.append(f"- When {learning.context}: {learning.content}")
+    return "\n".join(lines)
+
+
+class MostUsedLearning(BaseModel):
+    """A compact reference to a frequently retrieved learning (for stats)."""
+
+    id: str
+    context: str
+    content: str
+    hits: int
+
+
+# -- Token accounting ----------------------------------------------------
+#
+# Every model call (currently the Judge) reports how many tokens it burned;
+# the curator persists one TokenUsageRecord per call, and the API exposes a
+# per-agent aggregate (TokenUsageStats). Local, non-API operations (e.g. the
+# HuggingFace embedder) consume no billable tokens and are not recorded.
+
+
+class TokenUsage(BaseModel):
+    """Tokens consumed by a single model call, as reported by the provider."""
+
+    model: str | None = None
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+
+class TokenUsageRecord(BaseModel):
+    """A persisted token-consumption event for one operation.
+
+    ``operation`` names what spent the tokens (e.g. ``"judge"``); ``entity_id``
+    is carried when the call was made on a specific entity's behalf, so cost can
+    be attributed per user as well as per agent.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    agent_id: str
+    entity_id: str | None = None
+    operation: str
+    model: str | None = None
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    created_at: datetime = Field(default_factory=_now)
+
+
+class OperationTokenTotals(BaseModel):
+    """Token totals for one operation kind within an agent's usage."""
+
+    operation: str
+    calls: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+class TokenUsageStats(BaseModel):
+    """Aggregate token consumption for a single agent."""
+
+    agent_id: str
+    total_calls: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    by_operation: list[OperationTokenTotals] = Field(default_factory=list)
+    by_model: dict[str, int] = Field(default_factory=dict)  # model -> total_tokens
+
+
+class AgentSummary(BaseModel):
+    """A compact, cross-agent roster entry (for the "list agents" endpoint).
+
+    The store is scoped per ``agent_id`` with no agent registry of its own, so
+    the roster is derived: every ``agent_id`` that has ever appeared in the
+    learnings or token-usage tables, with just enough signal to render a card.
+    """
+
+    agent_id: str
+    total_learnings: int
+    active: int
+    distinct_entities: int
+    last_activity: datetime | None = None
+
+
+class AgentStats(BaseModel):
+    """Aggregate statistics for a single agent's stored learnings."""
+
+    agent_id: str
+    total: int
+    by_status: dict[str, int]  # active / superseded / rejected
+    by_scope: dict[str, int]  # personal / global
+    total_hits: int
+    avg_hits: float
+    distinct_entities: int
+    last_used_at: datetime | None = None
+    last_created_at: datetime | None = None
+    most_used: list[MostUsedLearning] = Field(default_factory=list)
+
+
+# -- Persist Learning API (curation) -------------------------------------
+#
+# These models describe the Judge's decision and its effect, per SDD §6/§8.
+# The Judge itself decides `scope` (see GeneratedLearning) as well as the
+# novelty verdict; `entity_id` is never in its hands — it is resolved by the
+# curator from the caller's request, which is the structural half of the
+# isolation guarantee (a `global` verdict always forces entity_id to None;
+# a `personal` verdict always uses the caller-supplied entity_id).
+
+
+class Verdict(str, Enum):
+    """The Judge's classification of a candidate learning.
+
+    ``reject``     — not worth persisting (trivial, unsafe, one-off).
+    ``new``        — worth persisting, no close match among retrieved neighbours.
+    ``same``       — restates an existing active learning; discarded, existing touched.
+    ``refine``     — same lesson family as an existing learning; merge into it.
+    ``contradict`` — conflicts with an existing learning; supersede it.
+    """
+
+    reject = "reject"
+    new = "new"
+    same = "same"
+    refine = "refine"
+    contradict = "contradict"
+
+
+class GeneratedLearning(BaseModel):
+    """The learning content authored by the Judge when it decides to persist.
+
+    Mirrors the persistable fields of :class:`Learning`, minus everything the
+    curator (not the LLM) is responsible for: ``id``, ``agent_id``,
+    ``entity_id``, ``status``, ``supersedes``, and the ranking/timestamp
+    signals. ``scope`` is included because the Judge decides it.
+    """
+
+    context: str
+    content: str
+    outcome: Outcome = Outcome.neutral
+    scope: Scope = Scope.personal
+    reason: str | None = None
+    original_output: str | None = None
+    corrected_output: str | None = None
+    category: str | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
+class JudgeVerdict(BaseModel):
+    """The Judge's full structured output for one persist attempt."""
+
+    verdict: Verdict
+    reason: str | None = None
+    related_learning_id: str | None = None
+    learning: GeneratedLearning | None = None
+
+    @model_validator(mode="after")
+    def _check_verdict_invariants(self) -> JudgeVerdict:
+        if self.verdict is Verdict.reject and self.learning is not None:
+            raise ValueError("a rejected verdict must not carry a generated learning")
+        if self.verdict in (Verdict.same, Verdict.refine, Verdict.contradict):
+            if not self.related_learning_id:
+                raise ValueError(
+                    f"verdict={self.verdict.value!r} requires related_learning_id"
+                )
+        if self.verdict in (Verdict.new, Verdict.refine, Verdict.contradict):
+            if self.learning is None:
+                raise ValueError(
+                    f"verdict={self.verdict.value!r} requires a generated learning"
+                )
+        return self
+
+
+class PersistResult(BaseModel):
+    """What the Persist Learning API returns for one conversation."""
+
+    decision: Literal["persisted", "rejected"]
+    verdict: Verdict
+    learning_id: str | None = None
+    superseded_id: str | None = None
+    reason: str | None = None
+
+    @model_validator(mode="after")
+    def _check_decision_invariants(self) -> PersistResult:
+        if self.decision == "rejected":
+            if self.learning_id is not None or self.superseded_id is not None:
+                raise ValueError("a rejected result must not carry learning ids")
+        else:
+            if self.learning_id is None:
+                raise ValueError("a persisted result requires learning_id")
+            if (
+                self.superseded_id is not None
+                and self.verdict is not Verdict.contradict
+            ):
+                raise ValueError("superseded_id is only set for verdict=contradict")
+        return self

@@ -146,3 +146,24 @@ export const IconMenu = (p: P) => (
     <path d="M4 6h16M4 12h16M4 18h16" />
   </svg>
 );
+
+export const IconHome = (p: P) => (
+  <svg {...base(p)}>
+    <path d="m3 11 9-8 9 8" />
+    <path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10" />
+  </svg>
+);
+
+export const IconKey = (p: P) => (
+  <svg {...base(p)}>
+    <circle cx="8" cy="15" r="4" />
+    <path d="m10.5 12.5 8-8M16 8l2 2M19 5l2 2" />
+  </svg>
+);
+
+export const IconChart = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M4 20V10M11 20V4M18 20v-7" />
+    <path d="M2 20h20" />
+  </svg>
+);

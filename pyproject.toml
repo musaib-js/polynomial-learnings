@@ -1,34 +1,115 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "polynomial-learnings"
 version = "0.1.0"
 description = "Framework-agnostic long-term learning module for AI agents — vector ingestion and retrieval on Postgres + pgvector."
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "Proprietary" }
+keywords = ["agents", "memory", "learnings", "pgvector", "retrieval", "embeddings"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+# Core stays deliberately tiny: the agent-side SDK talks HTTP and nothing else,
+# so the Postgres driver lives in the `server` extra rather than here. Installing
+# `[client]` or `[pydantic-ai]` must not pull a database stack into an agent
+# process that never touches one.
 dependencies = [
     "pydantic>=2.0",
-    "psycopg[binary]>=3.1",
-    "psycopg-pool>=3.2",
-    "pgvector>=0.3",
 ]
 
 [project.optional-dependencies]
+server = ["psycopg[binary]>=3.1", "psycopg-pool>=3.2", "pgvector>=0.3"]
 huggingface = ["sentence-transformers>=2.2"]
 pydantic-ai = ["pydantic-ai>=0.0.14", "httpx>=0.27"]
-api = ["fastapi>=0.110", "uvicorn[standard]>=0.27"]
+# SaaS tenancy/auth layer (learnings/auth/, api/auth_routes.py,
+# api/dashboard_routes.py). Its own extra because self-hosted/library-only
+# consumers don't need auth, JWT, or migration tooling.
+saas = [
+    "pydantic-settings>=2.0",
+    "pydantic[email]>=2.0",
+    "argon2-cffi>=23.1",
+    "pyjwt>=2.8",
+    "alembic>=1.13",
+    "sqlalchemy>=2.0",
+]
+# api/app.py imports both PgVectorBackend and AuthStore, so serving the API
+# needs the server stack and the SaaS layer together.
+api = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "python-dotenv>=1.0",
+    "psycopg[binary]>=3.1",
+    "psycopg-pool>=3.2",
+    "pgvector>=0.3",
+    "pydantic-settings>=2.0",
+    "pydantic[email]>=2.0",
+    "argon2-cffi>=23.1",
+    "pyjwt>=2.8",
+    "alembic>=1.13",
+    "sqlalchemy>=2.0",
+]
 client = ["httpx>=0.27"]
 groq = ["groq>=0.11"]
+all = [
+    "psycopg[binary]>=3.1",
+    "psycopg-pool>=3.2",
+    "pgvector>=0.3",
+    "sentence-transformers>=2.2",
+    "pydantic-ai>=0.0.14",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "python-dotenv>=1.0",
+    "httpx>=0.27",
+    "groq>=0.11",
+    "pydantic-settings>=2.0",
+    "pydantic[email]>=2.0",
+    "argon2-cffi>=23.1",
+    "pyjwt>=2.8",
+    "alembic>=1.13",
+    "sqlalchemy>=2.0",
+]
 dev = [
     "pytest>=8.0",
+    "psycopg[binary]>=3.1",
+    "psycopg-pool>=3.2",
+    "pgvector>=0.3",
     "sentence-transformers>=2.2",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
+    "python-dotenv>=1.0",
     "httpx>=0.27",
     "groq>=0.11",
+    "pydantic-settings>=2.0",
+    "pydantic[email]>=2.0",
+    "argon2-cffi>=23.1",
+    "pyjwt>=2.8",
+    "alembic>=1.13",
+    "sqlalchemy>=2.0",
 ]
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+[project.urls]
+Repository = "https://github.com/musaib-js/polynomial-learnings"
 
-[tool.hatch.build.targets.wheel]
-packages = ["learnings"]
+[tool.setuptools.package-data]
+learnings = ["*.sql", "py.typed"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Import the package from src/ so the suite runs against a plain checkout,
+# with or without an editable install.
+pythonpath = ["src"]
